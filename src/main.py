@@ -71,3 +71,7 @@ def procesar_video(ruta_video, ruta_modelo='data/models/yolov8n.pt'):
 
 if __name__ == '__main__':
     procesar_video('data/videos/videoTransito.mp4')
+
+
+#if __name__ == '__main__':
+#    procesar_video(0)  # en vez de 'data/videos/test.mp4'
