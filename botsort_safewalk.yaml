@@ -1,0 +1,97 @@
+# botsort_safewalk.yaml
+#
+# Configuracion de BoT-SORT para SafeWalk, derivada de los valores por
+# defecto que trae Ultralytics en su propio botsort.yaml.
+#
+# IMPORTANTE - verificar antes de usar: las claves exactas de este archivo
+# pueden variar segun la version de Ultralytics instalada. Antes de correr
+# el proyecto, localiza el archivo original de tu instalacion con:
+#
+#   python -c "import ultralytics, os; print(os.path.join(os.path.dirname(ultralytics.__file__), 'cfg', 'trackers', 'botsort.yaml'))"
+#
+# y compara sus claves con las de este archivo. Si alguna clave de aqui no
+# existe en el tuyo, elimínala de este archivo (no la inventes); si tu
+# version trae claves adicionales y quieres aprovecharlas, puedes agregarlas
+# aqui con sus valores por defecto.
+#
+# Cambio respecto al default: solo se modifico track_buffer (ver abajo).
+# El resto de valores son los que Ultralytics trae de fabrica -no se
+# modificaron a ciegas, se dejaron porque no hay evidencia en nuestras
+# pruebas de que haya que tocarlos-.
+
+tracker_type: botsort
+
+# Umbral de confianza para considerar una deteccion como "de alta calidad"
+# al asociarla con una trayectoria existente. Valor por defecto de Ultralytics.
+track_high_thresh: 0.5
+
+# Umbral minimo de confianza para considerar una deteccion en la asociacion
+# secundaria (deteccion de baja confianza). Valor por defecto.
+track_low_thresh: 0.1
+
+# Confianza minima para iniciar una trayectoria completamente nueva. Se deja
+# en el valor por defecto: subirlo reduciria falsos "objetos nuevos" pero
+# tambien podria retrasar el registro de personas que realmente entran a
+# escena, y no tenemos evidencia de pruebas reales para justificar el cambio.
+new_track_thresh: 0.6
+
+# ---------------------------------------------------------------------
+# UNICO PARAMETRO QUE SE CAMBIO A PROPOSITO:
+# Por defecto es 30 (aprox. 1 segundo a 30 FPS): es el numero de fotogramas
+# que el tracker conserva una trayectoria perdida antes de descartarla
+# definitivamente. Ese es precisamente el problema reportado: un auto que
+# tapa a un peaton mas de ~1 segundo le hacia perder el ID.
+#
+# Se sube a 240 (~8 segundos a 30 FPS) para que el propio tracker resista
+# oclusiones de autos pasando sin necesitar todavia la logica de
+# reasociacion de main.py. (Primero se probo con 90 ~3s y seguia sin
+# alcanzar para las oclusiones reales de este proyecto, por eso se subio
+# de nuevo). Es un punto de partida razonable, no un numero definitivo:
+# subirlo demasiado aumenta el riesgo de que el tracker "confunda" a dos
+# personas distintas que pasan por el mismo lugar en momentos cercanos
+# (asociacion incorrecta). Se recomienda ajustarlo observando videos
+# reales del proyecto -si 8s todavia no alcanza, se puede subir mas, pero
+# conviene revisar en paralelo si no se estan fusionando personas
+# distintas por error-.
+#
+# Nota tecnica: en algunas versiones de Ultralytics este valor se escala
+# internamente segun el FPS real del video detectado (asumiendo 30 FPS como
+# base), por lo que el tiempo efectivo en segundos puede variar levemente
+# segun la version instalada.
+track_buffer: 240
+
+# Umbral de similitud (IoU) para la asociacion de cajas entre fotogramas.
+# Valor por defecto.
+match_thresh: 0.8
+
+# Combina la confianza de deteccion con el puntaje de asociacion. Valor
+# por defecto.
+fuse_score: True
+
+# Compensacion de movimiento de camara. SafeWalk usa una camara fija, por lo
+# que su efecto es menor, pero no se desactiva porque no genera overhead
+# relevante y es el valor por defecto de Ultralytics.
+gmc_method: sparseOptFlow
+
+# Umbrales internos de BoT-SORT para la etapa de asociacion por apariencia
+# del propio tracker (distintos del histograma de color que implementamos
+# en main.py). Se dejan en su valor por defecto.
+proximity_thresh: 0.5
+appearance_thresh: 0.25
+
+# Re-identificacion visual (ReID) integrada de Ultralytics: se deja
+# DESACTIVADA a proposito. Activarla (with_reid: True) requiere que
+# Ultralytics descargue un modelo de embeddings adicional la primera vez
+# que se usa, lo cual no se pudo verificar en este entorno de desarrollo
+# (sin acceso a tu instalacion real). Queda documentado como una mejora
+# futura posible si el alcance del curso lo permite, no como algo ya
+# resuelto.
+with_reid: False
+
+# Clave requerida por tu version instalada de Ultralytics: internamente lee
+# args.model al construir BoT-SORT, incluso cuando with_reid esta en False
+# (se confirmo con el error real: "'IterableSimpleNamespace' object has no
+# attribute 'model'"). "auto" es el valor por defecto de Ultralytics; con
+# with_reid en False no deberia disparar ninguna descarga de modelo
+# adicional, solo evita que falte el atributo al leerlo.
+model: auto
