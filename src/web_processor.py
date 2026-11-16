@@ -32,6 +32,9 @@ class WebVideoProcessor:
         self.overlay = None
         self.display_fps = 0
         self.session_id = None
+        self.accident_simulation_enabled = False
+        self.simulated_call_active = False
+        self.simulated_call_count = 0
         self.frame_jpeg = None
         self.status = "Listo para analizar un video"
         self.running = False
@@ -50,6 +53,9 @@ class WebVideoProcessor:
                     "display_fps": round(self.display_fps, 1), "session_id": self.session_id,
                     "camera_received_fps": round(self.camera_received_fps, 1),
                     "camera_age_ms": round((time.monotonic() - self.camera_last_received) * 1000) if self.camera_last_received else None,
+                    "accident_simulation_enabled": self.accident_simulation_enabled,
+                    "simulated_call_active": self.simulated_call_active,
+                    "simulated_call_count": self.simulated_call_count,
                     "video_name": self.video_name, "error": self.error,
                     **self.stats}
 
@@ -76,6 +82,7 @@ class WebVideoProcessor:
             self.status = "Iniciando modelo YOLO…"
             self.video_name = video_name
             self.error = None
+            self.simulated_call_active = False
             self.stats = {"peatones": 0, "vehiculos": 0, "riesgo_medio": 0,
                           "riesgo_alto": 0, "peatones_cruzaron": 0,
                           "vehiculos_cruzaron": 0, "fps": 0}
@@ -141,6 +148,7 @@ class WebVideoProcessor:
 
     def _run(self, video_path):
         cap = None
+        recording = None
         session_id = None
         try:
             if not os.path.isfile(MODEL_DEFAULT):
@@ -168,6 +176,10 @@ class WebVideoProcessor:
             source_fps = (cap.get(cv2.CAP_PROP_FPS) if cap is not None else 0) or 30
             if not 1 <= source_fps <= 240:
                 source_fps = 30
+            video_dir = os.path.join(OUTPUT_DIR, "videos")
+            os.makedirs(video_dir, exist_ok=True)
+            recording_path = os.path.join(video_dir, f"sesion_{session_id}.mp4")
+            recording_fps = source_fps if video_path is not None else 5
             playback_start = None
             source_index = 0
             line_y = int(height * .65)
@@ -178,6 +190,8 @@ class WebVideoProcessor:
             fps = 0.0
             last_save = time.time()
             last_alert = {}
+            overlap_frames = {}
+            last_simulated_call = 0.0
             last_camera_frame = time.monotonic()
             self._set_status("Analizando video con YOLO…")
             while not self.stop_requested:
@@ -243,11 +257,33 @@ class WebVideoProcessor:
                                 else: total_v += 1
                         previous[track_id] = (cy, cls)
                 risks=[]; medium=high=0
+                overlapping_pairs = set()
                 for person in people:
                     level, distance = evaluar_riesgo(person["caja"], vehicle_boxes)
                     risks.append((person, level))
                     if level == "MEDIO": medium += 1
                     elif level == "ALTO": high += 1
+                    px1, py1, px2, py2 = person["caja"]
+                    person_id = person["track_id"]
+                    for vehicle in detections:
+                        if vehicle["clase"] == 0:
+                            continue
+                        vx1, vy1, vx2, vy2 = vehicle["caja"]
+                        intersection = max(0, min(px2, vx2) - max(px1, vx1)) * max(0, min(py2, vy2) - max(py1, vy1))
+                        smaller_area = min(max(1, (px2-px1)*(py2-py1)), max(1, (vx2-vx1)*(vy2-vy1)))
+                        if intersection / smaller_area >= .20 and person_id is not None and vehicle["track_id"] is not None:
+                            overlapping_pairs.add((person_id, vehicle["track_id"]))
+                overlap_frames = {pair: overlap_frames.get(pair, 0) + 1 for pair in overlapping_pairs}
+                with self.lock:
+                    simulation_enabled = self.accident_simulation_enabled
+                now_mono = time.monotonic()
+                if simulation_enabled and any(count >= 3 for count in overlap_frames.values()) and now_mono - last_simulated_call >= 30:
+                    last_simulated_call = now_mono
+                    with self.lock:
+                        self.simulated_call_active = True
+                        self.simulated_call_count += 1
+                    guardar_alerta("ALTO", "SIMULACIÓN: posible accidente por solapamiento persistente de peatón y vehículo; llamada simulada a emergencias.", session_id)
+                overlap_frames = {pair: count for pair, count in overlap_frames.items() if pair in overlapping_pairs}
                 out = frame.copy()
                 for d in detections:
                     x1,y1,x2,y2=d["caja"]
@@ -271,6 +307,18 @@ class WebVideoProcessor:
                 for i,line in enumerate(lines):
                     cv2.putText(out,line,(12,25+i*29),cv2.FONT_HERSHEY_SIMPLEX,.62,(255,255,255),2)
                 alert_level="ALTO" if high else ("MEDIO" if medium else None)
+                with self.lock:
+                    call_active = self.simulated_call_active
+                if call_active:
+                    cv2.rectangle(out,(10,105),(min(width-10,570),145),(0,0,180),-1)
+                    cv2.putText(out,"LLAMADA SIMULADA A EMERGENCIAS",(18,132),cv2.FONT_HERSHEY_SIMPLEX,.62,(255,255,255),2)
+                if recording is None:
+                    recording = cv2.VideoWriter(recording_path, cv2.VideoWriter_fourcc(*"mp4v"), recording_fps, (width, height))
+                    if not recording.isOpened():
+                        recording.release()
+                        recording = None
+                        raise RuntimeError("No se pudo crear el video del reporte.")
+                recording.write(out)
                 if alert_level:
                     alert_text=f"ALERTA DE RIESGO {alert_level}"
                     alert_color=(0,0,255) if alert_level=="ALTO" else (0,165,255)
@@ -313,6 +361,8 @@ class WebVideoProcessor:
                 self.error=str(exc)
                 self.status="Error en el análisis"
         finally:
+            if recording is not None:
+                recording.release()
             if cap is not None:
                 cap.release()
             try:

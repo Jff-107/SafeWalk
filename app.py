@@ -268,6 +268,19 @@ def api_dashboard():
     return jsonify({"dashboard": read_dashboard(), "analysis": processor.snapshot()})
 
 
+@app.post("/api/accident-simulation")
+def accident_simulation():
+    data = request.get_json(silent=True) or {}
+    enabled = data.get("enabled")
+    if not isinstance(enabled, bool):
+        return jsonify(message="Indica enabled como true o false."), 400
+    with processor.lock:
+        processor.accident_simulation_enabled = enabled
+        if not enabled:
+            processor.simulated_call_active = False
+    return jsonify(ok=True, enabled=enabled)
+
+
 @app.get("/api/estadisticas")
 def statistics():
     with closing(sqlite3.connect(DB_PATH)) as conn, conn:
@@ -302,6 +315,117 @@ def sessions():
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM resumen_sesiones ORDER BY id DESC LIMIT 200").fetchall()
     return jsonify([dict(row) for row in rows])
+
+
+@app.delete("/api/sesiones/<int:session_id>")
+def delete_session(session_id):
+    with processor.lock:
+        if processor.running and processor.session_id == session_id:
+            return jsonify(message="Detén el análisis antes de eliminarlo."), 409
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        conn.execute("PRAGMA foreign_keys=ON")
+        exists = conn.execute("SELECT 1 FROM sesiones WHERE id=?", (session_id,)).fetchone()
+        if not exists:
+            return jsonify(message="Ese análisis ya no existe."), 404
+        conn.execute("DELETE FROM metricas WHERE sesion_id=?", (session_id,))
+        conn.execute("DELETE FROM alertas WHERE sesion_id=?", (session_id,))
+        conn.execute("DELETE FROM sesiones WHERE id=?", (session_id,))
+        conn.commit()
+    video_path = OUTPUTS / "videos" / f"sesion_{session_id}.mp4"
+    video_path.unlink(missing_ok=True)
+    exportar_reportes()
+    return jsonify(ok=True)
+
+
+@app.post("/api/sesiones/eliminar")
+def delete_sessions():
+    data = request.get_json(silent=True) or {}
+    raw_ids = data.get('ids')
+    if not isinstance(raw_ids, list) or not raw_ids or any(type(value) is not int or value < 1 for value in raw_ids):
+        return jsonify(message="Selecciona uno o más análisis válidos."), 400
+    session_ids = sorted(set(raw_ids))
+    with processor.lock:
+        if processor.running and processor.session_id in session_ids:
+            return jsonify(message="Detén primero el análisis que sigue en ejecución."), 409
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        conn.execute("PRAGMA foreign_keys=ON")
+        found = {row[0] for row in conn.execute(
+            f"SELECT id FROM sesiones WHERE id IN ({','.join('?' for _ in session_ids)})", session_ids)}
+        if found != set(session_ids):
+            return jsonify(message="Uno o más análisis ya no existen. Actualiza el historial."), 404
+        placeholders = ','.join('?' for _ in session_ids)
+        conn.execute(f"DELETE FROM metricas WHERE sesion_id IN ({placeholders})", session_ids)
+        conn.execute(f"DELETE FROM alertas WHERE sesion_id IN ({placeholders})", session_ids)
+        conn.execute(f"DELETE FROM sesiones WHERE id IN ({placeholders})", session_ids)
+        conn.commit()
+    for session_id in session_ids:
+        (OUTPUTS / "videos" / f"sesion_{session_id}.mp4").unlink(missing_ok=True)
+    exportar_reportes()
+    return jsonify(ok=True, deleted=len(session_ids))
+
+
+@app.get("/reportes/sesion/<int:session_id>")
+def review_session(session_id):
+    return render_template("review.html", session_id=session_id)
+
+
+@app.get("/api/reportes/sesion/<int:session_id>")
+def session_report(session_id):
+    from datetime import datetime
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        session_row = conn.execute("SELECT * FROM sesiones WHERE id=?", (session_id,)).fetchone()
+        if not session_row:
+            return jsonify(message="No se encontró ese análisis."), 404
+        rows = conn.execute("""SELECT fecha_hora, peatones_frame, vehiculos_frame,
+            peatones_cruzaron, vehiculos_cruzaron, riesgo_medio_frame, riesgo_alto_frame, fps
+            FROM metricas WHERE sesion_id=? ORDER BY id""", (session_id,)).fetchall()
+    start = datetime.fromisoformat(session_row['inicio'])
+    metrics = []
+    for row in rows:
+        item = dict(row)
+        item['segundo'] = max(0, (datetime.fromisoformat(item['fecha_hora']) - start).total_seconds())
+        metrics.append(item)
+    video_name = f"sesion_{session_id}.mp4"
+    video_path = OUTPUTS / "videos" / video_name
+    video_info = None
+    if video_path.is_file():
+        cap = cv2.VideoCapture(str(video_path))
+        if cap.isOpened():
+            fps = cap.get(cv2.CAP_PROP_FPS) or 5
+            video_info = {"duration": cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps, "fps": fps,
+                          "frame_url": f"/api/reportes/sesion/{session_id}/frame"}
+        cap.release()
+    return jsonify(sesion=dict(session_row), muestras=metrics, video=video_info)
+
+
+@app.get("/api/reportes/sesion/<int:session_id>/frame")
+def session_video_frame(session_id):
+    try:
+        seconds = max(0.0, float(request.args.get('t', '0')))
+    except ValueError:
+        return jsonify(message="Posición de video inválida."), 400
+    video_path = OUTPUTS / "videos" / f"sesion_{session_id}.mp4"
+    if not video_path.is_file():
+        return jsonify(message="Video no disponible."), 404
+    cap = cv2.VideoCapture(str(video_path))
+    cap.set(cv2.CAP_PROP_POS_MSEC, seconds * 1000)
+    ok, frame = cap.read()
+    cap.release()
+    if not ok:
+        return Response(status=204)
+    ok, encoded = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
+    if not ok:
+        return jsonify(message="No se pudo decodificar el fotograma."), 500
+    return Response(encoded.tobytes(), mimetype='image/jpeg', headers={'Cache-Control':'no-store'})
+
+
+@app.get("/reportes/video/<int:session_id>")
+def session_video(session_id):
+    video_name = f"sesion_{session_id}.mp4"
+    if not (OUTPUTS / "videos" / video_name).is_file():
+        return "Video de este reporte no disponible", 404
+    return send_from_directory(OUTPUTS / "videos", video_name, mimetype="video/mp4", conditional=True)
 
 
 @app.get('/api/registros')

@@ -7,7 +7,7 @@
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand"><div class="brand-icon">S</div><div><strong>SafeWalk</strong><small>MONITOREO INTELIGENTE</small></div></div>
+    <div class="brand"><div class="brand-icon">S</div><div class="brand-name"><strong>SafeWalk</strong><small>MONITOREO INTELIGENTE</small></div><button type="button" id="sidebar-toggle" class="brand-toggle" aria-label="Ocultar menú" aria-expanded="true" title="Ocultar menú">☰</button></div>
     <div class="nav-label">MENÚ PRINCIPAL</div>
     <a class="nav active" href="/">▦ <span>Panel general</span></a>
     <a class="nav" href="#monitoreo">▶ <span>Monitoreo de video</span></a>
@@ -17,7 +17,7 @@
     <div class="side-bottom"><span class="live-dot"></span> Panel conectado<br><small>Datos locales del proyecto</small></div>
   </aside>
   <main class="main">
-    <header><div><p class="eyebrow">SAFEWALK / MONITOREO Y DATOS</p><h1>Centro de monitoreo</h1><p class="sub">Prevención de riesgos peatonales y seguimiento del flujo vial.</p></div><div class="status"><span class="live-dot"></span> Panel disponible</div></header>
+    <header><div><p class="eyebrow">SAFEWALK / MONITOREO Y DATOS</p><h1>Centro de monitoreo</h1><p class="sub">Prevención de riesgos peatonales y seguimiento del flujo vial.</p></div><div class="header-actions"><button type="button" class="theme-toggle" data-theme-toggle aria-label="Activar modo oscuro">🌙 Modo oscuro</button><div class="status"><span class="live-dot"></span> Panel disponible</div></div></header>
     {% if not d.available %}<div class="notice warning">Aún no se encuentra la base de datos. Ejecuta primero el análisis con <code>python -m src.main data/videos/videoTransito.mp4</code>.</div>{% endif %}
     {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-list">{% for category, message in messages %}<div class="notice {{ 'success' if category == 'success' else 'warning' }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
     <section class="panel monitor-panel" id="monitoreo">
@@ -43,7 +43,7 @@
       </div>
       <div class="video-layout">
         <div class="video-screen"><img alt="Video procesado por YOLO con cajas de detección y alertas" id="processed-video"><div class="video-placeholder" id="video-placeholder"><span>▶</span><strong>Vista de análisis</strong><p>Esperando imágenes. Conecta la cámara del celular o selecciona un video.</p></div></div>
-        <div class="video-side"><div class="data-note"><strong>Archivo actual</strong><span id="video-name">{{ p.video_name or 'Ningún video seleccionado' }}</span></div><div class="data-note"><strong>Estado</strong><span id="analysis-detail">{{ p.status }}</span></div><div class="live-values"><div><small>Peatones</small><strong id="live-people">{{ p.peatones }}</strong></div><div><small>Vehículos</small><strong id="live-vehicles">{{ p.vehiculos }}</strong></div><div><small>Riesgo medio</small><strong id="live-medium">{{ p.riesgo_medio }}</strong></div><div><small>Riesgo alto</small><strong id="live-high">{{ p.riesgo_alto }}</strong></div><div><small>Cruces peatonales</small><strong id="live-p-cross">{{ p.peatones_cruzaron }}</strong></div><div><small>Cruces vehiculares</small><strong id="live-v-cross">{{ p.vehiculos_cruzaron }}</strong></div></div>
+        <div class="video-side"><div class="data-note"><strong>Archivo actual</strong><span id="video-name">{{ p.video_name or 'Ningún video seleccionado' }}</span></div><div class="data-note"><strong>Estado</strong><span id="analysis-detail">{{ p.status }}</span></div><div class="data-note"><strong>Simulación automática de emergencias</strong><button type="button" class="primary-button" id="accident-simulation-toggle" aria-pressed="false">Activar simulación</button><span id="accident-simulation-status" role="status">Desactivada.</span><small>Se activa con solapamiento de peatón y vehículo durante 3 análisis seguidos. Solo es simulación.</small></div><div class="live-values"><div><small>Peatones</small><strong id="live-people">{{ p.peatones }}</strong></div><div><small>Vehículos</small><strong id="live-vehicles">{{ p.vehiculos }}</strong></div><div><small>Riesgo medio</small><strong id="live-medium">{{ p.riesgo_medio }}</strong></div><div><small>Riesgo alto</small><strong id="live-high">{{ p.riesgo_alto }}</strong></div><div><small>Cruces peatonales</small><strong id="live-p-cross">{{ p.peatones_cruzaron }}</strong></div><div><small>Cruces vehiculares</small><strong id="live-v-cross">{{ p.vehiculos_cruzaron }}</strong></div></div>
           <div class="data-note"><strong>Reproducción / detección</strong><span><b id="playback-fps">{{ p.display_fps }}</b> FPS de video · <b id="inference-fps">{{ p.fps }}</b> FPS de YOLO</span><small>En modo fluido, las cajas muestran la detección más reciente; no se analiza cada fotograma.</small></div>
           <form action="{{ url_for('stop_analysis') }}" method="post"><button id="stop-analysis" class="stop-button" type="submit" {% if not p.running %}disabled{% endif %}>■ Detener análisis</button></form><p class="hint">El video se procesa en este equipo. No cierres la terminal mientras la página esté en uso.</p></div>
       </div>
@@ -69,7 +69,7 @@
       <div class="trend-container"><canvas id="trend-chart" role="img" aria-label="Tendencias en tiempo real: peatones, vehículos y personas en riesgo alto"></canvas></div>
       <p class="hint" id="trend-description">Esperando datos. Las detecciones no equivalen a personas únicas.</p>
       <a href="/estadisticas.png" target="_blank" rel="noopener">Ver gráfico por minuto (Matplotlib)</a>
-      <h2>Historial de análisis</h2><div class="table-wrap"><table><thead><tr><th>Fuente</th><th>Nombre</th><th>Inicio</th><th>Estado</th></tr></thead><tbody id="sessions-body"></tbody></table></div>
+      <h2>Historial de análisis</h2><div class="records-actions"><label><input id="select-all-sessions" type="checkbox"> Seleccionar todos los visibles</label><button id="delete-selected-sessions" class="delete-session" type="button" disabled>Eliminar seleccionados</button><span id="selected-sessions-count" class="hint">0 seleccionados</span></div><div class="table-wrap"><table><thead><tr><th>Elegir</th><th>Fuente</th><th>Nombre</th><th>Inicio</th><th>Estado</th><th>Reporte</th></tr></thead><tbody id="sessions-body"></tbody></table></div>
     </section>
     {% include 'records.html' %}
     <section class="content-grid">
@@ -86,12 +86,28 @@
     </section>
     <footer><span>SafeWalk · Proyecto académico de visión por computadora</span><span>Riesgo estimado por proximidad visual; no sustituye una evaluación vial oficial.</span></footer>
   </main>
+  <div id="emergency-simulation-alert" class="emergency-alert" role="alertdialog" aria-live="assertive" hidden>
+    <div class="emergency-alert-card"><div class="emergency-siren">🚨</div><div><strong>LLAMADA SIMULADA A EMERGENCIAS</strong><p>SafeWalk detectó un posible accidente. Esta es una demostración: no se contactó a ningún servicio real.</p><span id="emergency-call-count"></span></div><button type="button" id="dismiss-emergency-alert" aria-label="Cerrar alerta">×</button></div>
+  </div>
   <script>
+    let dismissedEmergencyCallCount = 0;
     async function updateSafeWalk() {
       try {
         const response = await fetch('/api/dashboard', {cache: 'no-store'});
         const data = await response.json();
         const p = data.analysis;
+        const emergencyAlert = document.getElementById('emergency-simulation-alert');
+        if (emergencyAlert) {
+          emergencyAlert.hidden = !p.simulated_call_active || p.simulated_call_count <= dismissedEmergencyCallCount;
+          document.getElementById('emergency-call-count').textContent = `Simulaciones registradas: ${p.simulated_call_count}`;
+        }
+        const simulationButton = document.getElementById('accident-simulation-toggle');
+        if (simulationButton) {
+          simulationButton.textContent = p.accident_simulation_enabled ? 'Desactivar simulación' : 'Activar simulación';
+          simulationButton.setAttribute('aria-pressed', String(!!p.accident_simulation_enabled));
+          const status = document.getElementById('accident-simulation-status');
+          if (status) status.textContent = p.simulated_call_active ? `Llamada simulada activada (${p.simulated_call_count}). No se contactó a emergencias.` : p.accident_simulation_enabled ? 'Activa: esperando posible accidente.' : 'Desactivada.';
+        }
         const put = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value ?? 0; };
         put('analysis-status', p.status); put('analysis-detail', p.error || p.status);
         if (p.source === 'camera' && p.running) {
@@ -115,22 +131,75 @@
       } catch (e) { /* El panel seguirá mostrando el último estado recibido. */ }
     }
     setInterval(updateSafeWalk, 2000); updateSafeWalk();
+    document.getElementById('accident-simulation-toggle')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/accident-simulation', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({enabled:button.getAttribute('aria-pressed') !== 'true'})});
+        if (!response.ok) throw new Error('No se pudo cambiar la simulación.');
+        await updateSafeWalk();
+      } catch (error) { document.getElementById('accident-simulation-status').textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+    document.getElementById('dismiss-emergency-alert')?.addEventListener('click', () => { dismissedEmergencyCallCount = Number(document.getElementById('emergency-call-count').textContent.match(/\d+/g)?.at(-1) || 0); document.getElementById('emergency-simulation-alert').hidden = true; });
     async function updateSessions() {
       try {
         const response = await fetch('/api/sesiones');
         const rows = await response.json();
         const body = document.getElementById('sessions-body');
+        const selectedIds = new Set([...document.querySelectorAll('.session-select:checked')].map(box => box.value));
         body.replaceChildren();
         for (const row of rows.slice(0, 20)) {
           const tr = document.createElement('tr');
+          const selectCell = document.createElement('td');
+          const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.className = 'session-select'; checkbox.value = row.id; checkbox.checked = selectedIds.has(String(row.id)); checkbox.setAttribute('aria-label', `Seleccionar análisis ${row.nombre}`);
+          selectCell.appendChild(checkbox); tr.appendChild(selectCell);
           for (const value of [row.fuente, row.nombre, row.inicio, row.estado]) {
             const td = document.createElement('td'); td.textContent = value; tr.appendChild(td);
           }
+          const action = document.createElement('td');
+          const link = document.createElement('a'); link.href = `/reportes/sesion/${row.id}`; link.textContent = 'Revisar';
+          const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'delete-session'; remove.textContent = 'Eliminar';
+          remove.addEventListener('click', async () => {
+            if (!confirm(`¿Eliminar el análisis “${row.nombre}” y sus métricas, alertas y video? Esta acción no se puede deshacer.`)) return;
+            remove.disabled = true;
+            try {
+              const response = await fetch(`/api/sesiones/${row.id}`, {method:'DELETE'});
+              const result = await response.json();
+              if (!response.ok) throw new Error(result.message || 'No se pudo eliminar el análisis.');
+              await updateSessions();
+            } catch (error) { alert(error.message); remove.disabled = false; }
+          });
+          action.append(link, document.createTextNode(' '), remove); tr.appendChild(action);
           body.appendChild(tr);
         }
+        updateBulkSelection();
       } catch (error) { /* Se conserva el historial visible. */ }
     }
     updateSessions(); setInterval(updateSessions, 10000);
+    function updateBulkSelection() {
+      const selected = [...document.querySelectorAll('.session-select:checked')];
+      document.getElementById('selected-sessions-count').textContent = `${selected.length} seleccionados`;
+      document.getElementById('delete-selected-sessions').disabled = selected.length === 0;
+      const all = [...document.querySelectorAll('.session-select')];
+      const master = document.getElementById('select-all-sessions');
+      master.checked = all.length > 0 && selected.length === all.length;
+      master.indeterminate = selected.length > 0 && selected.length < all.length;
+    }
+    document.getElementById('sessions-body').addEventListener('change', event => { if (event.target.matches('.session-select')) updateBulkSelection(); });
+    document.getElementById('select-all-sessions').addEventListener('change', event => {
+      document.querySelectorAll('.session-select').forEach(box => { box.checked = event.target.checked; }); updateBulkSelection();
+    });
+    document.getElementById('delete-selected-sessions').addEventListener('click', async event => {
+      const ids = [...document.querySelectorAll('.session-select:checked')].map(box => Number(box.value));
+      if (!ids.length || !confirm(`¿Eliminar ${ids.length} análisis seleccionados y sus métricas, alertas y videos? Esta acción no se puede deshacer.`)) return;
+      const button = event.currentTarget; button.disabled = true;
+      try {
+        const response = await fetch('/api/sesiones/eliminar', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids})});
+        const result = await response.json(); if (!response.ok) throw new Error(result.message || 'No se pudieron eliminar los análisis.');
+        document.getElementById('select-all-sessions').checked = false; await updateSessions(); updateBulkSelection();
+      } catch (error) { alert(error.message); button.disabled = false; }
+    });
   </script>
   <script src="{{ url_for('static', filename='camera-transport.js', v=asset_version) }}"></script>
   <script src="{{ url_for('static', filename='camera-geometry.js', v=asset_version) }}"></script>
@@ -139,5 +208,6 @@
   <script src="{{ url_for('static', filename='mobile-setup.js', v=asset_version) }}"></script>
   <script src="{{ url_for('static', filename='video-viewer.js', v=asset_version) }}"></script>
   <script src="{{ url_for('static', filename='records.js', v=asset_version) }}"></script>
+  <script src="{{ url_for('static', filename='theme.js', v=asset_version) }}"></script>
 </body>
 </html>

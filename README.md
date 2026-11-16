@@ -2,6 +2,8 @@
 
 ## Avance: persistencia SQLite y reportes pandas
 
+Cada análisis iniciado desde el panel guarda su video anotado en `outputs/videos/sesion_<id>.mp4`. En el historial, pulsa **Revisar** para abrir el video con controles de reproducción, retroceso/avance de 5 segundos y métricas sincronizadas con el tiempo del video. Los registros previos a esta función no tienen video procesado asociado.
+
 El panel incorpora **Base de datos y explorador de registros**: selección de métricas o alertas, filtros por análisis, fechas y riesgo, paginación de 25 registros, indicadores de la selección y descargas CSV/ZIP que aplican los mismos filtros. El estado de SQLite muestra cantidades almacenadas, integridad y relaciones inválidas. Las copias completas se descargan usando la API de respaldo de SQLite.
 
 Indica la **zona monitoreada** al subir un video o activar una cámara. Cada ejecución relaciona su zona y fuente con sus métricas y alertas. Los registros anteriores se conservan; su zona queda como `Sin especificar`.
