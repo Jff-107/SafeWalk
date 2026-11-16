@@ -1,0 +1,15 @@
+<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vincular SafeWalk</title>
+<body style="font-family:Segoe UI,sans-serif;max-width:500px;margin:12vh auto;padding:24px;background:#f4f7fb;color:#182230"><h1>Vincular dispositivo</h1><p id="message" role="status">Conectando con tu laptop…</p>
+<script>
+(async () => {
+ const key = location.hash.slice(1);
+ const panel = new URLSearchParams(location.search).has('panel');
+ history.replaceState(null, '', location.pathname);
+ try {
+   if (!key) throw new Error('Escanea el QR o abre el enlace que aparece en la laptop.');
+   const response = await fetch('/api/acceso', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clave:key})});
+   if (!response.ok) throw new Error((await response.json()).message);
+   location.replace(panel ? '/' : '/camara-movil');
+ } catch (error) { document.getElementById('message').textContent = error.message; }
+})();
+</script></body></html>
