@@ -1,0 +1,17 @@
+<section class="panel monitor-panel" id="registros">
+  <div class="panel-head"><div><h2>Base de datos y explorador de registros</h2><p>SQLite conserva el historial; pandas prepara las descargas. Los filtros se aplican a la tabla y a los reportes.</p></div><span class="pill" id="database-status">Consultando SQLite…</span></div>
+  <div class="records-summary" id="database-counts"></div>
+  <form id="records-filter" class="records-filters">
+    <label>Registros<select name="tipo"><option value="metricas">Métricas</option><option value="alertas">Alertas</option></select></label>
+    <label>Análisis<select name="sesion" id="records-session"><option value="">Todos los análisis</option><option value="legacy">Anteriores sin sesión</option></select></label>
+    <label>Desde<input name="desde" type="date"></label><label>Hasta<input name="hasta" type="date"></label>
+    <label>Riesgo<select name="nivel"><option value="">Todos</option><option value="ALTO">Alto</option><option value="MEDIO">Medio</option><option value="BAJO">Bajo</option></select></label>
+    <button type="submit" class="primary-button">Consultar registros</button>
+  </form>
+  <p id="records-summary" class="hint"></p>
+  <div class="records-actions"><a class="primary-button" id="records-csv" href="/reportes/descargar">Descargar CSV filtrado</a><a class="primary-button" id="records-zip" href="/reportes/descargar?formato=zip">Reporte ZIP con pandas</a><a href="/descargas/safewalk.db">Copia completa SQLite</a></div>
+  <p id="records-message" role="status">Cargando registros…</p>
+  <div class="table-wrap"><table><thead id="records-head"></thead><tbody id="records-body"></tbody></table></div>
+  <div class="records-pagination"><button id="records-prev" type="button">← Anterior</button><span id="records-page"></span><button id="records-next" type="button">Siguiente →</button></div>
+  <details><summary>Qué contienen los reportes</summary><p class="hint">El ZIP incluye registros, resumen por sesión y tendencias por minuto en CSV UTF-8. Las detecciones por muestra no representan personas únicas. Los conteos de cruces son acumulados de la sesión: no sumes los valores de cada fila. Una sesión antigua sin identificación no puede atribuirse a un video concreto.</p></details>
+</section>

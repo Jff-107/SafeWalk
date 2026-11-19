@@ -1,0 +1,11 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SafeWalk · Cámara del celular</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}"></head>
+<body class="mobile-camera-page"><main class="phone-panel"><p class="eyebrow">SAFEWALK / CÁMARA REMOTA</p><h1>Tu celular es la cámara</h1><p>Apunta hacia la zona de tránsito. La laptop realiza la detección y muestra las alertas en su panel.</p>
+<label>Cámara <select id="camera-facing"><option value="environment">Trasera</option><option value="user">Frontal</option></select></label>
+<label>Zona <input id="camera-zone" maxlength="120" placeholder="Ej. Entrada UTP"></label>
+<button id="rotate-camera" class="primary-button" type="button">Girar imagen 90°</button>
+<p class="hint">La orientación se adapta al girar el teléfono. Si tu navegador la mantiene bloqueada, usa Girar imagen.</p>
+<video id="camera-preview" autoplay muted playsinline></video>
+<button id="start-camera" class="primary-button" type="button">Conectar y transmitir</button><button id="stop-camera" class="stop-button" type="button" disabled>Detener cámara</button>
+<p id="camera-message" role="status">Pulsa conectar y permite el acceso a la cámara.</p><p class="hint">Mantén esta página abierta y el teléfono desbloqueado. No se envía audio. Las imágenes pasan por el túnel HTTPS hacia tu laptop; usa una escena de prueba sin información privada.</p>
+</main><script src="{{ url_for('static', filename='camera-transport.js', v=asset_version) }}"></script><script src="{{ url_for('static', filename='camera-geometry.js', v=asset_version) }}"></script><script src="{{ url_for('static', filename='camera.js', v=asset_version) }}"></script></body></html>

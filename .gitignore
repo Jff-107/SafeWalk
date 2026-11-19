@@ -1,7 +1,10 @@
-venv/
 __pycache__/
-*.pyc
-.env
-outputs/
-data/videos/
-.vscode/
+.venv/
+venv/
+outputs/*
+!outputs/.gitkeep
+data/videos/*
+!data/videos/.gitkeep
+tools/cloudflared.exe
+
+.venv311/
