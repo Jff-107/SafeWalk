@@ -2,15 +2,16 @@
 <html lang="es">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SafeWalk | Centro de monitoreo</title>
+  <title>SafeWalk | {{ "Videos grabados" if mode == "video" else "Cámara en vivo" }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
   <aside class="sidebar">
     <div class="brand"><div class="brand-icon">S</div><div class="brand-name"><strong>SafeWalk</strong><small>MONITOREO INTELIGENTE</small></div><button type="button" id="sidebar-toggle" class="brand-toggle" aria-label="Ocultar menú" aria-expanded="true" title="Ocultar menú">☰</button></div>
     <div class="nav-label">MENÚ PRINCIPAL</div>
-    <a class="nav active" href="/">▦ <span>Panel general</span></a>
-    <a class="nav" href="#monitoreo">▶ <span>Monitoreo de video</span></a>
+    <a class="nav" href="/#estadisticas">▦ <span>Panel general</span></a>
+    <a class="nav {{ 'active' if mode == 'video' else '' }}" href="{{ url_for('videos') }}#monitoreo">Videos grabados</a>
+    <a class="nav {{ 'active' if mode == 'camera' else '' }}" href="{{ url_for('live_camera') }}#monitoreo">Cámara en vivo</a>
     <a class="nav" href="#alertas">⚠ <span>Alertas registradas</span></a>
     <a class="nav" href="#reportes">▤ <span>Reportes y datos</span></a>
     <a class="nav" href="#registros">▤ <span>Consultar SQLite</span></a>
@@ -21,13 +22,18 @@
     {% if not d.available %}<div class="notice warning">Aún no se encuentra la base de datos. Ejecuta primero el análisis con <code>python -m src.main data/videos/videoTransito.mp4</code>.</div>{% endif %}
     {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-list">{% for category, message in messages %}<div class="notice {{ 'success' if category == 'success' else 'warning' }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
     <section class="panel monitor-panel" id="monitoreo">
-      <div class="panel-head"><div><h2>Monitoreo de video con YOLO</h2><p>Sube un video y SafeWalk lo analizará con el mismo modelo YOLOv8, dibujando las detecciones y estimando el riesgo.</p></div><span class="pill" id="analysis-status">{{ p.status }}</span></div>
+      <div class="panel-head"><div><h2>{{ "Análisis de videos" if mode == "video" else "Detección con cámara en vivo" }}</h2><p>{{ "Sube un video para analizar sus fotogramas con YOLO." if mode == "video" else "Conecta una cámara de laptop o celular para analizar el tránsito en vivo." }}</p></div><span class="pill" id="analysis-status">{{ p.status }}</span></div>
+      {% if mode == "video" %}
+      <p class="hint">Vehículos: cajas detectadas en el fotograma analizado. Cruces: vehículos seguidos al atravesar la línea celeste, situada al 65 % de la altura.</p>
       <form class="upload-form" action="{{ url_for('upload_video') }}" method="post" enctype="multipart/form-data">
         <label class="file-picker"><span class="file-icon">MP4</span><span><strong>Seleccionar video de tránsito</strong><small>MP4, AVI, MOV, MKV o WEBM · máximo 500 MB</small></span><input type="file" name="video" accept="video/mp4,video/x-msvideo,video/quicktime,video/x-matroska,video/webm" required></label>
         <label>Zona monitoreada <input name="zona" maxlength="120" placeholder="Ej. Entrada UTP"></label>
-        <label>Modo <select name="quality"><option value="fast">Fluido (video independiente de YOLO)</option><option value="precise">Completo (cada fotograma; puede ir más lento)</option></select></label>
+        <label>Modo <select name="quality"><option value="precise">Mayor detalle (832 px; analiza cada fotograma)</option><option value="fast">Rápido (768 px; reproducción fluida, detecciones por muestra)</option><option value="offline">Calidad original: analizar y luego reproducir (YOLO 960 px; video sin reducir)</option></select></label>
         <button class="primary-button" type="submit" {% if p.running %}disabled{% endif %}>▶ Subir y analizar</button>
       </form>
+      {% endif %}
+      {% if mode == "camera" %}
+      <p class="hint">La cámara y los videos usan el mismo modelo YOLO y las mismas clases. La cámara analiza imágenes recibidas en vivo; el video analiza fotogramas del archivo.</p>
       <div class="upload-form">
         <div><strong>Cámara de laptop o celular</strong><p class="hint">Permite el acceso a la cámara. En celular abre esta página mediante HTTPS; usa la cámara trasera para observar el tránsito.</p></div>
         <select id="camera-facing" aria-label="Cámara"><option value="environment">Trasera / exterior</option><option value="user">Frontal</option></select>
@@ -41,16 +47,33 @@
         <div><h2>Conectar mi celular como cámara</h2><p id="mobile-connection-status">Para habilitar el enlace HTTPS y el QR, inicia <code>.venv\Scripts\python.exe iniciar_movil.py</code>. Abre el panel desde el enlace que aparecerá en esa terminal.</p><a id="mobile-phone-link" hidden target="_blank" rel="noopener noreferrer">Abrir cámara del celular</a><p class="hint">La laptop muestra las detecciones; el celular transmite desde su cámara. El enlace es privado para tu demostración y cambia cada vez que reinicias el modo celular.</p></div>
         <img id="mobile-qr" width="180" height="180" alt="Escanea para vincular la cámara del celular" hidden>
       </div>
+      {% endif %}
+      <p class="hint">Conteo actual del último fotograma analizado; se actualiza mientras YOLO procesa.</p>
+      <div class="live-values monitor-values"><div><small>Peatones</small><strong id="live-people">{{ p.peatones }}</strong></div><div><small>Vehículos en el último análisis</small><strong id="live-vehicles">{{ p.vehiculos }}</strong></div><div><small>Riesgo medio</small><strong id="live-medium">{{ p.riesgo_medio }}</strong></div><div><small>Riesgo alto</small><strong id="live-high">{{ p.riesgo_alto }}</strong></div><div><small>Cruces peatonales</small><strong id="live-p-cross">{{ p.peatones_cruzaron }}</strong></div><div><small>Cruces vehiculares</small><strong id="live-v-cross">{{ p.vehiculos_cruzaron }}</strong></div></div>
       <div class="video-layout">
-        <div class="video-screen"><img alt="Video procesado por YOLO con cajas de detección y alertas" id="processed-video"><div class="video-placeholder" id="video-placeholder"><span>▶</span><strong>Vista de análisis</strong><p>Esperando imágenes. Conecta la cámara del celular o selecciona un video.</p></div></div>
-        <div class="video-side"><div class="data-note"><strong>Archivo actual</strong><span id="video-name">{{ p.video_name or 'Ningún video seleccionado' }}</span></div><div class="data-note"><strong>Estado</strong><span id="analysis-detail">{{ p.status }}</span></div><div class="data-note"><strong>Simulación automática de emergencias</strong><button type="button" class="primary-button" id="accident-simulation-toggle" aria-pressed="false">Activar simulación</button><span id="accident-simulation-status" role="status">Desactivada.</span><small>Se activa con solapamiento de peatón y vehículo durante 3 análisis seguidos. Solo es simulación.</small></div><div class="live-values"><div><small>Peatones</small><strong id="live-people">{{ p.peatones }}</strong></div><div><small>Vehículos</small><strong id="live-vehicles">{{ p.vehiculos }}</strong></div><div><small>Riesgo medio</small><strong id="live-medium">{{ p.riesgo_medio }}</strong></div><div><small>Riesgo alto</small><strong id="live-high">{{ p.riesgo_alto }}</strong></div><div><small>Cruces peatonales</small><strong id="live-p-cross">{{ p.peatones_cruzaron }}</strong></div><div><small>Cruces vehiculares</small><strong id="live-v-cross">{{ p.vehiculos_cruzaron }}</strong></div></div>
-          <div class="data-note"><strong>Reproducción / detección</strong><span><b id="playback-fps">{{ p.display_fps }}</b> FPS de video · <b id="inference-fps">{{ p.fps }}</b> FPS de YOLO</span><small>En modo fluido, las cajas muestran la detección más reciente; no se analiza cada fotograma.</small></div>
+        <div class="video-screen"><img alt="Video procesado por YOLO con cajas de detección y alertas" id="processed-video"><div class="video-placeholder" id="video-placeholder"><span>▶</span><strong>Vista de análisis</strong><p>{{ "Esperando la cámara." if mode == "camera" else "Selecciona un video para iniciar el análisis." }}</p></div></div>
+        <div class="video-side"><div class="data-note"><strong>Fuente actual</strong><span id="video-name">{{ p.video_name or 'Ningún video seleccionado' }}</span></div><div class="data-note"><strong>Estado</strong><span id="analysis-detail">{{ p.status }}</span></div><div class="data-note"><strong>Simulación automática de emergencias</strong><button type="button" class="primary-button" id="accident-simulation-toggle" aria-pressed="false">Activar simulación</button><span id="accident-simulation-status" role="status">Desactivada.</span><small>Se activa con solapamiento de peatón y vehículo durante 3 análisis seguidos. Solo es simulación.</small></div>
+          <div class="data-note"><strong>Reproducción / detección</strong><span><b id="playback-fps">{{ p.display_fps }}</b> FPS de video · <b id="inference-fps">{{ p.fps }}</b> FPS de YOLO</span><small>En modo rápido el video avanza de forma continua y YOLO actualiza las cajas y el conteo con las muestras que alcanza a analizar.</small></div>
           <form action="{{ url_for('stop_analysis') }}" method="post"><button id="stop-analysis" class="stop-button" type="submit" {% if not p.running %}disabled{% endif %}>■ Detener análisis</button></form><p class="hint">El video se procesa en este equipo. No cierres la terminal mientras la página esté en uso.</p></div>
       </div>
+      {% if mode == "video" %}
+      <div class="playback-controls" id="video-playback-controls" aria-label="Controles del video en análisis">
+        <button type="button" id="video-toggle" disabled>▶ Reproducir</button>
+        <button type="button" id="video-back" disabled>↶ 10 s</button>
+        <button type="button" id="video-forward" disabled>10 s ↷</button>
+        <label for="video-seek" class="hint">Posición</label>
+        <input id="video-seek" type="range" min="0" max="0" value="0" step="0.1" disabled aria-label="Ir a un momento del video">
+        <span id="video-time">00:00 / 00:00</span>
+        <span id="video-control-message" role="status"></span>
+      </div>
+      <p class="hint" id="offline-progress" hidden>Preparando el análisis completo.</p>
+      <p id="offline-result" hidden><a class="primary-button" id="offline-report-link" href="#">Reproducir resultado con fluidez</a></p>
+      <p class="hint">Al avanzar o retroceder se omiten los fotogramas saltados y se reinicia el conteo de cruces del tramo actual.</p>
+      {% endif %}
       {% if p.error %}<div class="notice warning">{{ p.error }}</div>{% endif %}
     </section>
     {% if d.error %}<div class="notice warning">No se pudieron leer los datos: {{ d.error }}</div>{% endif %}
-    <section class="section-head"><div><h2>Resumen del análisis</h2><p>Últimos datos guardados en SafeWalk.</p></div><span class="updated">Actualización automática cada 2 s</span></section>
+    <section class="section-head"><div><h2>Resumen del análisis</h2><p>Últimos datos guardados en SafeWalk.</p></div><span class="updated">Actualización automática cada 1 s</span></section>
     <section class="stats">
       <article class="stat"><div class="stat-top"><span>Peatones detectados</span><span class="stat-icon blue">♙</span></div><div class="number" id="dashboard-people">{{ d.peatones }}</div><small>En el último registro</small></article>
       <article class="stat"><div class="stat-top"><span>Vehículos detectados</span><span class="stat-icon cyan">▰</span></div><div class="number" id="dashboard-vehicles">{{ d.vehiculos }}</div><small>En el último registro</small></article>
@@ -96,6 +119,7 @@
         const response = await fetch('/api/dashboard', {cache: 'no-store'});
         const data = await response.json();
         const p = data.analysis;
+        window.dispatchEvent(new CustomEvent('safewalk:analysis', {detail: p}));
         const emergencyAlert = document.getElementById('emergency-simulation-alert');
         if (emergencyAlert) {
           emergencyAlert.hidden = !p.simulated_call_active || p.simulated_call_count <= dismissedEmergencyCallCount;
@@ -121,16 +145,29 @@
         put('live-medium', p.riesgo_medio); put('live-high', p.riesgo_alto);
         put('live-p-cross', p.peatones_cruzaron); put('live-v-cross', p.vehiculos_cruzaron);
         put('playback-fps', p.display_fps); put('inference-fps', p.fps);
+        const offlineControls = document.getElementById('video-playback-controls');
+        const offlineProgress = document.getElementById('offline-progress');
+        const offlineResult = document.getElementById('offline-result');
+        if (offlineControls) offlineControls.hidden = !!p.offline;
+        if (offlineProgress) {
+          offlineProgress.hidden = !p.offline || !p.running;
+          if (p.offline && p.running) offlineProgress.textContent = `Analizando el video completo: ${Math.floor(p.video_position)} de ${Math.floor(p.video_duration)} segundos. El resultado estará listo al finalizar.`;
+        }
+        if (offlineResult) {
+          offlineResult.hidden = !p.offline || p.running || !!p.error || !p.session_id || p.status !== 'Análisis finalizado';
+          if (!offlineResult.hidden) document.getElementById('offline-report-link').href = `/reportes/sesion/${p.session_id}`;
+        }
         const placeholder = document.getElementById('video-placeholder');
-        if (placeholder) placeholder.hidden = p.has_frame;
-        const submit = document.querySelector('.primary-button'); if (submit) submit.disabled = !!p.running;
+        const matchesPage = p.source === {{ mode|tojson }};
+        if (placeholder) placeholder.hidden = p.has_frame && matchesPage;
+        const submit = document.querySelector('.upload-form button[type="submit"]'); if (submit) submit.disabled = !!p.running;
         const stop = document.getElementById('stop-analysis'); if (stop) stop.disabled = !p.running;
         const db = data.dashboard;
         put('dashboard-people', db.peatones); put('dashboard-vehicles', db.vehiculos);
         put('dashboard-medium', db.riesgo_medio); put('dashboard-high', db.riesgo_alto);
       } catch (e) { /* El panel seguirá mostrando el último estado recibido. */ }
     }
-    setInterval(updateSafeWalk, 2000); updateSafeWalk();
+    setInterval(updateSafeWalk, 1000); updateSafeWalk();
     document.getElementById('accident-simulation-toggle')?.addEventListener('click', async (event) => {
       const button = event.currentTarget;
       button.disabled = true;
@@ -201,12 +238,15 @@
       } catch (error) { alert(error.message); button.disabled = false; }
     });
   </script>
+  {% if mode == "camera" %}
   <script src="{{ url_for('static', filename='camera-transport.js', v=asset_version) }}"></script>
   <script src="{{ url_for('static', filename='camera-geometry.js', v=asset_version) }}"></script>
   <script src="{{ url_for('static', filename='camera.js', v=asset_version) }}"></script>
-  <script src="{{ url_for('static', filename='trends.js', v=asset_version) }}"></script>
   <script src="{{ url_for('static', filename='mobile-setup.js', v=asset_version) }}"></script>
+  {% endif %}
+  <script src="{{ url_for('static', filename='trends.js', v=asset_version) }}"></script>
   <script src="{{ url_for('static', filename='video-viewer.js', v=asset_version) }}"></script>
+  {% if mode == "video" %}<script src="{{ url_for('static', filename='video-controls.js', v=asset_version) }}"></script>{% endif %}
   <script src="{{ url_for('static', filename='records.js', v=asset_version) }}"></script>
   <script src="{{ url_for('static', filename='theme.js', v=asset_version) }}"></script>
 </body>

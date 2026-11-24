@@ -13,6 +13,13 @@ from .main import (ROOT, MODEL_DEFAULT, OUTPUT_DIR, CLASES, evaluar_riesgo,
                    preparar_base_datos, guardar_alerta, guardar_metrica, exportar_reportes,
                    iniciar_sesion, finalizar_sesion)
 
+# Mayor resolución recupera objetos pequeños/lejanos; menor confianza prioriza
+# no perder peatones o vehículos parcialmente visibles.
+CONFIDENCE_THRESHOLD = .25
+FAST_IMAGE_SIZE = 768
+PRECISE_IMAGE_SIZE = 832
+OFFLINE_IMAGE_SIZE = 960
+
 class WebVideoProcessor:
     def __init__(self):
         self.lock = threading.Lock()
@@ -39,6 +46,12 @@ class WebVideoProcessor:
         self.status = "Listo para analizar un video"
         self.running = False
         self.stop_requested = False
+        self.video_paused = False
+        self.video_position = 0.0
+        self.video_duration = 0.0
+        self.video_seek_target = None
+        self.live_cap = None
+        self.offline = False
         self.video_name = ""
         self.error = None
         self.thread = None
@@ -57,15 +70,20 @@ class WebVideoProcessor:
                     "simulated_call_active": self.simulated_call_active,
                     "simulated_call_count": self.simulated_call_count,
                     "video_name": self.video_name, "error": self.error,
+                    "video_paused": self.video_paused,
+                    "video_position": round(self.video_position, 2),
+                    "video_duration": round(self.video_duration, 2),
+                    "offline": self.offline,
                     **self.stats}
 
-    def start(self, video_path, video_name, fast=True, zone='Sin especificar'):
+    def start(self, video_path, video_name, fast=True, zone='Sin especificar', offline=False):
         with self.lock:
             if self.running:
                 return False, "Ya hay un análisis en ejecución. Espera a que termine."
             self.running = True
             self.source = "camera" if video_path is None else "video"
             self.fast = fast
+            self.offline = bool(offline and video_path is not None)
             self.zone = str(zone).strip()[:120] or 'Sin especificar'
             self.overlay = None
             self.display_fps = 0
@@ -78,6 +96,11 @@ class WebVideoProcessor:
             while not self.camera_frames.empty():
                 self.camera_frames.get_nowait()
             self.stop_requested = False
+            self.video_paused = False
+            self.video_position = 0.0
+            self.video_duration = 0.0
+            self.video_seek_target = None
+            self.live_cap = None
             self.frame_jpeg = None
             self.status = "Iniciando modelo YOLO…"
             self.video_name = video_name
@@ -146,6 +169,31 @@ class WebVideoProcessor:
                 return True
             return False
 
+    def control_video(self, action, seconds=None):
+        with self.lock:
+            if not self.running or self.source != "video" or self.offline:
+                return False, "No hay un video en análisis."
+            if action == "pause":
+                self.video_paused = True
+            elif action == "play":
+                self.video_paused = False
+            elif action in ("seek", "forward", "back"):
+                if action == "seek":
+                    if not isinstance(seconds, (int, float)) or not 0 <= seconds <= self.video_duration:
+                        return False, "Posición fuera del video."
+                    target = seconds
+                else:
+                    position = self.video_seek_target if self.video_seek_target is not None else self.video_position
+                    target = position + (10 if action == "forward" else -10)
+                self.video_seek_target = max(0.0, min(float(target), max(0.0, self.video_duration - .01)))
+                self.overlay = None
+            else:
+                return False, "Control no reconocido."
+            if self.live_cap is not None:
+                self.live_cap.control(paused=self.video_paused, seek=self.video_seek_target)
+                self.video_seek_target = None
+            return True, "Control aplicado."
+
     def _run(self, video_path):
         cap = None
         recording = None
@@ -154,13 +202,13 @@ class WebVideoProcessor:
             if not os.path.isfile(MODEL_DEFAULT):
                 raise FileNotFoundError(f"No se encontró el modelo YOLO: {MODEL_DEFAULT}")
             preparar_base_datos()
-            session_id = iniciar_sesion(self.source, self.video_name, self.zone)
+            session_id = iniciar_sesion('video_diferido' if self.offline else self.source, self.video_name, self.zone)
             with self.lock:
                 self.session_id = session_id
             if not torch.cuda.is_available():
                 # Reserva CPU para decodificar, dibujar y transmitir el video.
                 torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
-            size = 416 if self.fast else 640
+            size = OFFLINE_IMAGE_SIZE if self.offline else (FAST_IMAGE_SIZE if self.fast else PRECISE_IMAGE_SIZE)
             if self.model is None:
                 self._set_status("Preparando YOLO; la cámara ya puede mostrar imágenes…")
                 self.model = YOLO(MODEL_DEFAULT)
@@ -169,19 +217,29 @@ class WebVideoProcessor:
             for tracker in getattr(getattr(model, 'predictor', None), 'trackers', []):
                 tracker.reset()
             cap = (LiveVideo(video_path, self._publish_live, lambda: self.stop_requested)
-                   if self.fast else cv2.VideoCapture(video_path)) if video_path is not None else None
+                   if self.fast and video_path is not None and not self.offline else
+                   cv2.VideoCapture(video_path) if video_path is not None else None)
+            if isinstance(cap, LiveVideo):
+                with self.lock:
+                    self.live_cap = cap
+                    cap.control(paused=self.video_paused, seek=self.video_seek_target)
+                    self.video_seek_target = None
             if cap is not None and not cap.isOpened():
                 raise ValueError("No se pudo abrir el video. Prueba con MP4, AVI o MOV.")
             width, height = 640, 480
             source_fps = (cap.get(cv2.CAP_PROP_FPS) if cap is not None else 0) or 30
             if not 1 <= source_fps <= 240:
                 source_fps = 30
+            if cap is not None:
+                with self.lock:
+                    self.video_duration = max(0.0, cap.get(cv2.CAP_PROP_FRAME_COUNT) / source_fps)
             video_dir = os.path.join(OUTPUT_DIR, "videos")
             os.makedirs(video_dir, exist_ok=True)
             recording_path = os.path.join(video_dir, f"sesion_{session_id}.mp4")
             recording_fps = source_fps if video_path is not None else 5
             playback_start = None
             source_index = 0
+            last_epoch = 0
             line_y = int(height * .65)
             previous, counted = {}, set()
             tracking_shape = None
@@ -189,6 +247,7 @@ class WebVideoProcessor:
             p_count = v_count = medium = high = 0
             fps = 0.0
             last_save = time.time()
+            last_saved_counts = None
             last_alert = {}
             overlap_frames = {}
             last_simulated_call = 0.0
@@ -196,6 +255,26 @@ class WebVideoProcessor:
             self._set_status("Analizando video con YOLO…")
             while not self.stop_requested:
                 t0 = time.perf_counter()
+                if cap is not None and not isinstance(cap, LiveVideo):
+                    with self.lock:
+                        target = self.video_seek_target
+                        self.video_seek_target = None
+                        paused = self.video_paused
+                    if target is not None:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, round(target * source_fps))
+                        source_index = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+                        playback_start = None
+                        previous.clear()
+                        counted.clear()
+                        overlap_frames.clear()
+                        total_p = total_v = 0
+                        for tracker in getattr(getattr(model, 'predictor', None), 'trackers', []):
+                            tracker.reset()
+                        with self.lock:
+                            self.video_position = source_index / source_fps
+                    if paused and target is None:
+                        time.sleep(.05)
+                        continue
                 if cap is None:
                     try:
                         frame, frame_received_at = self.camera_frames.get(timeout=.25)
@@ -211,10 +290,32 @@ class WebVideoProcessor:
                     ok, frame = cap.read()
                     if not ok:
                         break
-                    source_index += 1
+                    if isinstance(cap, LiveVideo):
+                        source_index = cap.frame_index
+                        if cap.frame_epoch != last_epoch:
+                            last_epoch = cap.frame_epoch
+                            previous.clear()
+                            counted.clear()
+                            overlap_frames.clear()
+                            total_p = total_v = 0
+                            for tracker in getattr(getattr(model, 'predictor', None), 'trackers', []):
+                                tracker.reset()
+                    else:
+                        source_index += 1
+                        with self.lock:
+                            self.video_position = source_index / source_fps
                     t0 = time.perf_counter()
-                if self.fast and frame.shape[1] > 960:
-                    frame = cv2.resize(frame, (960, round(frame.shape[0] * 960 / frame.shape[1])))
+                # Limita tambien la salida grabada: codificar un 1080p completo
+                # por cada inferencia ralentiza la reproduccion en CPU.
+                max_edge = None if self.offline else (960 if self.fast else 1280)
+                longest_edge = max(frame.shape[:2])
+                if max_edge is not None and longest_edge > max_edge:
+                    scale = max_edge / longest_edge
+                    frame = cv2.resize(frame, (round(frame.shape[1] * scale),
+                                               round(frame.shape[0] * scale)))
+                if self.offline and (frame.shape[0] % 2 or frame.shape[1] % 2):
+                    frame = frame[:frame.shape[0] - frame.shape[0] % 2,
+                                  :frame.shape[1] - frame.shape[1] % 2]
                 height, width = frame.shape[:2]
                 line_y = int(height * .65)
                 if cap is None and tracking_shape is not None and tracking_shape != (height, width):
@@ -225,8 +326,9 @@ class WebVideoProcessor:
                         tracker.reset()
                 tracking_shape = (height, width)
                 result = model.track(frame, persist=True, tracker="bytetrack.yaml",
-                                     classes=list(CLASES.keys()), conf=.35,
-                                     imgsz=416 if self.fast else 640, verbose=False)[0]
+                                     classes=list(CLASES.keys()), conf=CONFIDENCE_THRESHOLD,
+                                     imgsz=size,
+                                     verbose=False)[0]
                 boxes = result.boxes
                 ids = boxes.id.int().cpu().tolist() if boxes.id is not None else [None] * len(boxes)
                 detections, vehicle_boxes, people = [], [], []
@@ -300,12 +402,6 @@ class WebVideoProcessor:
                 cv2.line(out,(0,line_y),(width,line_y),(255,255,0),2)
                 cv2.putText(out,"LINEA DE CONTEO",(10,max(20,line_y-8)),cv2.FONT_HERSHEY_SIMPLEX,.5,(255,255,0),1)
                 fps=1/max(time.perf_counter()-t0,.001)
-                cv2.rectangle(out,(0,0),(min(width,760),94),(20,25,40),-1)
-                lines=[f"PEATONES: {p_count} | VEHICULOS: {v_count}",
-                       f"CRUCES: peatones {total_p} | vehiculos {total_v}",
-                       f"RIESGO MEDIO: {medium} | ALTO: {high} | FPS: {fps:.1f}"]
-                for i,line in enumerate(lines):
-                    cv2.putText(out,line,(12,25+i*29),cv2.FONT_HERSHEY_SIMPLEX,.62,(255,255,255),2)
                 alert_level="ALTO" if high else ("MEDIO" if medium else None)
                 with self.lock:
                     call_active = self.simulated_call_active
@@ -313,7 +409,8 @@ class WebVideoProcessor:
                     cv2.rectangle(out,(10,105),(min(width-10,570),145),(0,0,180),-1)
                     cv2.putText(out,"LLAMADA SIMULADA A EMERGENCIAS",(18,132),cv2.FONT_HERSHEY_SIMPLEX,.62,(255,255,255),2)
                 if recording is None:
-                    recording = cv2.VideoWriter(recording_path, cv2.VideoWriter_fourcc(*"mp4v"), recording_fps, (width, height))
+                    codec = "avc1" if self.offline else "mp4v"
+                    recording = cv2.VideoWriter(recording_path, cv2.VideoWriter_fourcc(*codec), recording_fps, (width, height))
                     if not recording.isOpened():
                         recording.release()
                         recording = None
@@ -329,9 +426,14 @@ class WebVideoProcessor:
                         guardar_alerta(alert_level, f"Personas en riesgo {alert_level.lower()}: {high if high else medium}", session_id)
                         last_alert[alert_level]=now
                 now=time.time()
-                if now-last_save>=1:
-                    guardar_metrica(p_count,v_count,total_p,total_v,fps,medium,high,session_id)
+                counts = (p_count, v_count, total_p, total_v, medium, high)
+                # Una deteccion breve puede desaparecer antes de la siguiente muestra
+                # periodica; guarda tambien cada cambio de los contadores.
+                if now-last_save>=1 or counts != last_saved_counts:
+                    guardar_metrica(p_count,v_count,total_p,total_v,fps,medium,high,session_id,
+                                    source_index / source_fps if self.offline else None)
                     last_save=now
+                    last_saved_counts=counts
                 with self.lock:
                     self.overlay = (frame_received_at if cap is None else time.monotonic(), detections, risks, frame.shape[:2])
                     self.stats={"peatones":p_count,"vehiculos":v_count,"riesgo_medio":medium,
@@ -339,21 +441,22 @@ class WebVideoProcessor:
                                 "vehiculos_cruzaron":total_v,"fps":round(fps,1)}
                     if isinstance(cap, LiveVideo):
                         self.display_fps = cap.display_fps
-                if cap is not None and not isinstance(cap, LiveVideo):
-                    ok, encoded=cv2.imencode('.jpg',out,[int(cv2.IMWRITE_JPEG_QUALITY),75])
+                if cap is not None and not self.offline and not isinstance(cap, LiveVideo):
+                    ok, encoded=cv2.imencode('.jpg',out,[int(cv2.IMWRITE_JPEG_QUALITY),70])
                     if ok:
                         with self.lock:
                             self.display_fps = fps
                             self.frame_jpeg=encoded.tobytes()
                             self.frame_version += 1
                             self.condition.notify_all()
-                if cap is not None and not isinstance(cap, LiveVideo):
+                if cap is not None and not self.offline and not isinstance(cap, LiveVideo):
                     if playback_start is None:
                         playback_start = time.perf_counter() - source_index / source_fps
                     delay = playback_start + source_index / source_fps - time.perf_counter()
                     if delay > 0:
                         time.sleep(min(delay, .1))
-            guardar_metrica(p_count,v_count,total_p,total_v,fps,medium,high,session_id)
+            guardar_metrica(p_count,v_count,total_p,total_v,fps,medium,high,session_id,
+                            source_index / source_fps if self.offline else None)
             exportar_reportes()
             self._set_status("Análisis detenido" if self.stop_requested else "Análisis finalizado")
         except Exception as exc:
@@ -371,6 +474,7 @@ class WebVideoProcessor:
             finally:
                 with self.lock:
                     self.running=False
+                    self.live_cap=None
                     self.condition.notify_all()
 
     def _set_status(self, status):
@@ -382,6 +486,8 @@ class WebVideoProcessor:
         with self.lock:
             overlay = self.overlay
             stats = dict(self.stats)
+            if self.live_cap is not None and self.source == "video":
+                self.video_position = self.live_cap.playback_position()
         out = frame.copy()
         height, width = out.shape[:2]
         if overlay is not None and time.monotonic() - overlay[0] <= .5 and overlay[3] == frame.shape[:2]:
@@ -396,11 +502,6 @@ class WebVideoProcessor:
                 cv2.putText(out, label, (x1, max(20, y1-6)), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 1)
         line_y = int(height * .65)
         cv2.line(out, (0, line_y), (width, line_y), (255, 255, 0), 2)
-        cv2.rectangle(out, (0, 0), (width, 64), (20, 25, 40), -1)
-        cv2.putText(out, f"PEATONES: {stats['peatones']} | VEHICULOS: {stats['vehiculos']}",
-                    (10, 24), cv2.FONT_HERSHEY_SIMPLEX, .55, (255, 255, 255), 1)
-        cv2.putText(out, f"YOLO: {stats['fps']:.1f} FPS | Detecciones muestreadas",
-                    (10, 49), cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 255), 1)
         if stats['riesgo_alto'] or stats['riesgo_medio']:
             level = 'ALTO' if stats['riesgo_alto'] else 'MEDIO'
             color = (0, 0, 255) if level == 'ALTO' else (0, 165, 255)

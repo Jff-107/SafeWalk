@@ -1,10 +1,15 @@
 __pycache__/
 .venv/
+.venv_anterior/
 venv/
+.env
+.publish_*/
+*.pyc
+*.zip
+*.docx
 outputs/*
 !outputs/.gitkeep
 data/videos/*
 !data/videos/.gitkeep
 tools/cloudflared.exe
-
-.venv311/
+.vscode/

@@ -93,7 +93,7 @@ cameraStart.addEventListener('click', async () => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('La cámara requiere HTTPS o localhost. Abre el enlace del modo celular.');
     cameraStream = await navigator.mediaDevices.getUserMedia({audio: false, video: {
       facingMode: {ideal: document.getElementById('camera-facing').value},
-      width: {ideal: 640}, height: {ideal: 480}, frameRate: {ideal: 30, max: 30}
+      width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 30, max: 30}
     }});
     cameraVideo.srcObject = cameraStream;
     await cameraVideo.play();

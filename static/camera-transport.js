@@ -15,8 +15,8 @@ class CameraTransport {
   get available() { return this.active && this.pending.size < 2; }
   get profile() {
     if (this.rtt > 500) return {edge: 384, quality: .4, fps: 10};
-    if (this.rtt > 200) return {edge: 480, quality: .45, fps: 20};
-    return this.delivered ? {edge: 640, quality: .52, fps: 30} : {edge: 480, quality: .45, fps: 15};
+    if (this.rtt > 200) return {edge: 640, quality: .5, fps: 20};
+    return this.delivered ? {edge: 960, quality: .62, fps: 30} : {edge: 640, quality: .5, fps: 15};
   }
   send(blob) {
     if (!this.available) return false;

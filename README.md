@@ -1,5 +1,21 @@
 # SafeWalk — videos, cámaras y análisis de datos
 
+## Mejoras recientes: detección y reproducción
+
+El panel separa **videos grabados** (`/videos`) y **cámara en vivo** (`/en-vivo`). Ambos usan YOLOv8 para personas, bicicletas, autos, motocicletas, buses y camiones. Las cifras de peatones y vehículos indican detecciones del último fotograma analizado; los cruces se cuentan aparte cuando una trayectoria atraviesa la línea. SQLite guarda una muestra cada segundo y también cuando cambia el conteo.
+
+Al subir un video hay tres modos:
+
+| Modo | Análisis | Reproducción |
+| --- | --- | --- |
+| Mayor detalle | YOLO a 832 px, todos los fotogramas | Vista anotada mientras se analiza; puede ir lenta en CPU |
+| Rápido | YOLO a 768 px sobre las muestras que alcanza a procesar | Reproducción independiente de hasta 30 FPS; cajas y conteos se actualizan con cada muestra |
+| Calidad original | YOLO a 960 px, todos los fotogramas | Procesa primero y luego reproduce el MP4 anotado a la resolución original con controles nativos |
+
+En los dos primeros modos puedes pausar, reanudar, retroceder o avanzar 10 segundos y usar la barra de posición. Al saltar se reinicia el seguimiento del tramo y se omiten los fotogramas saltados. El tercer modo muestra el progreso y, al terminar, habilita **Reproducir resultado con fluidez**; el historial abre ese reporte con un reproductor HTML5. Los contadores en vivo están fuera de la imagen. La cámara adapta la resolución enviada a la calidad de la conexión y puede llegar a 960 px.
+
+**Límite práctico:** el video del modo rápido puede verse fluido aunque YOLO procese menos fotogramas; sus cajas son la detección más reciente y no representan cada imagen mostrada. El modo de calidad original tarda más en producir el archivo, pero permite reproducirlo fluidamente después. Se necesita reiniciar el servidor para aplicar cambios en Python.
+
 ## Avance: persistencia SQLite y reportes pandas
 
 Cada análisis iniciado desde el panel guarda su video anotado en `outputs/videos/sesion_<id>.mp4`. En el historial, pulsa **Revisar** para abrir el video con controles de reproducción, retroceso/avance de 5 segundos y métricas sincronizadas con el tiempo del video. Los registros previos a esta función no tienen video procesado asociado.
@@ -20,10 +36,10 @@ Consulta `database/README.md` para ver el modelo de datos y una secuencia de exp
 
 ## Ampliación basada en la exposición S14
 
-- Cámara de laptop o celular mediante `getUserMedia` del navegador, con selección frontal/trasera. El navegador envía JPEG de hasta 640 px; YOLO se ejecuta en el servidor, no en el teléfono.
+- Cámara de laptop o celular mediante `getUserMedia` del navegador. El tamaño de los JPEG se adapta a la conexión y el servidor limita el lado mayor a 960 px.
 - Cola de cámara de un solo fotograma: se reemplaza la imagen pendiente para evitar acumular retraso. Se detiene la sesión con error si no llegan imágenes durante 30 segundos.
-- Modo fluido (predeterminado): un hilo reproduce el video a su ritmo original, hasta 30 FPS y 960 px de ancho, mientras YOLO analiza por separado las imágenes más recientes a 416 px. La cola conserva una sola imagen pendiente. Las cajas se reutilizan hasta medio segundo después de obtener la detección; no se infiere cada fotograma. Puede perder detecciones y cruces; el rendimiento de salida depende del equipo y del navegador.
-- Modo completo: inferencia a 640 px, sin omitir fotogramas. La reproducción puede ir más lenta en CPU.
+- Modo rápido: un hilo reproduce el video a su ritmo original, hasta 30 FPS, mientras YOLO analiza las muestras recientes a 768 px. Las cajas se conservan brevemente y pueden omitirse detecciones entre muestras.
+- Modo mayor detalle: inferencia a 832 px en todos los fotogramas; modo de calidad original: inferencia a 960 px y reproducción posterior del resultado H.264.
 - Visor de JPEG completos mediante `/api/video/frame`: solicita una imagen nueva a la vez, libera la anterior y reintenta si falla. Evita que el navegador mantenga una carga MJPEG indefinida. `/video_feed` se conserva por compatibilidad.
 - SQLite con sesiones, métricas y alertas relacionadas por `sesion_id`. Los registros anteriores se conservan sin sesión; no se les atribuye una fuente inventada.
 - Pandas para exportar CSV, agrupar por minuto y calcular estadísticas. Matplotlib genera el gráfico de tendencias del último análisis.
