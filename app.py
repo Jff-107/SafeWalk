@@ -142,7 +142,17 @@ def allowed_file(filename):
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html", d=read_dashboard(), p=processor.snapshot())
+    return render_template("index.html", d=read_dashboard(), p=processor.snapshot(), mode="video")
+
+
+@app.get('/videos')
+def videos():
+    return render_template("index.html", d=read_dashboard(), p=processor.snapshot(), mode="video")
+
+
+@app.get('/en-vivo')
+def live_camera():
+    return render_template("index.html", d=read_dashboard(), p=processor.snapshot(), mode="camera")
 
 
 @app.route("/subir-video", methods=["POST"])
@@ -150,13 +160,13 @@ def upload_video():
     file = request.files.get("video")
     if not file or not file.filename:
         flash("Selecciona un video antes de iniciar el análisis.", "error")
-        return redirect(url_for("index") + "#monitoreo")
+        return redirect(url_for("videos") + "#monitoreo")
     if not allowed_file(file.filename):
         flash("Formato no compatible. Usa MP4, AVI, MOV, MKV o WEBM.", "error")
-        return redirect(url_for("index") + "#monitoreo")
+        return redirect(url_for("videos") + "#monitoreo")
     if processor.snapshot()["running"]:
         flash("Ya hay un análisis en ejecución. Espera a que termine antes de subir otro video.", "error")
-        return redirect(url_for("index") + "#monitoreo")
+        return redirect(url_for("videos") + "#monitoreo")
     UPLOADS.mkdir(parents=True, exist_ok=True)
     safe_name = secure_filename(file.filename) or "video.mp4"
     # Evita sobrescribir un archivo que ya se subió con el mismo nombre.
@@ -167,12 +177,15 @@ def upload_video():
         target = UPLOADS / f"{stem}_{number}{suffix}"
         number += 1
     file.save(target)
-    started, message = processor.start(str(target), target.name, request.form.get("quality") != "precise", zone=request.form.get('zona', 'Sin especificar'))
+    quality = request.form.get('quality')
+    started, message = processor.start(str(target), target.name, quality == 'fast',
+                                       zone=request.form.get('zona', 'Sin especificar'),
+                                       offline=quality == 'offline')
     if not started:
         flash(message, "error")
     else:
         flash(f"Video '{target.name}' cargado. YOLO inició el análisis.", "success")
-    return redirect(url_for("index") + "#monitoreo")
+    return redirect(url_for("videos") + "#monitoreo")
 
 
 @app.route("/detener", methods=["POST"])
@@ -181,7 +194,8 @@ def stop_analysis():
         flash("Se solicitó detener el análisis.", "success")
     else:
         flash("No hay un análisis activo.", "error")
-    return redirect(url_for("index") + "#monitoreo")
+    source = processor.snapshot()['source']
+    return redirect(url_for('live_camera' if source == 'camera' else 'videos') + '#monitoreo')
 
 
 @app.route("/video_feed")
@@ -215,6 +229,15 @@ def current_video_frame():
     return Response(frame, mimetype='image/jpeg', headers={'X-Frame-Version': str(version)})
 
 
+@app.post('/api/video/control')
+def video_control():
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify(message='Solicitud inválida.'), 400
+    ok, message = processor.control_video(data.get('action'), data.get('seconds'))
+    return jsonify(message=message, analysis=processor.snapshot()), 200 if ok else 409
+
+
 @app.post("/api/camera/start")
 def start_camera():
     data = request.get_json(silent=True) or {}
@@ -246,7 +269,7 @@ def camera_frame():
     if frame is None:
         return jsonify(message="Imagen inválida."), 400
     # Mantiene las coordenadas del seguimiento aunque el móvil reduzca el JPEG.
-    scale = 640 / max(frame.shape[:2])
+    scale = min(1, 960 / max(frame.shape[:2]))
     if abs(scale - 1) > .01:
         frame = cv2.resize(frame, (max(1, round(frame.shape[1] * scale)), max(1, round(frame.shape[0] * scale))))
     if not processor.submit_camera_frame(frame, sequence, token):
@@ -366,7 +389,11 @@ def delete_sessions():
 
 @app.get("/reportes/sesion/<int:session_id>")
 def review_session(session_id):
-    return render_template("review.html", session_id=session_id)
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        row = conn.execute("SELECT fuente FROM sesiones WHERE id=?", (session_id,)).fetchone()
+    if row is None:
+        return "Análisis no encontrado", 404
+    return render_template("review.html", session_id=session_id, offline=row[0] == 'video_diferido')
 
 
 @app.get("/api/reportes/sesion/<int:session_id>")
@@ -377,14 +404,15 @@ def session_report(session_id):
         session_row = conn.execute("SELECT * FROM sesiones WHERE id=?", (session_id,)).fetchone()
         if not session_row:
             return jsonify(message="No se encontró ese análisis."), 404
-        rows = conn.execute("""SELECT fecha_hora, peatones_frame, vehiculos_frame,
+        rows = conn.execute("""SELECT fecha_hora, video_segundo, peatones_frame, vehiculos_frame,
             peatones_cruzaron, vehiculos_cruzaron, riesgo_medio_frame, riesgo_alto_frame, fps
             FROM metricas WHERE sesion_id=? ORDER BY id""", (session_id,)).fetchall()
     start = datetime.fromisoformat(session_row['inicio'])
     metrics = []
     for row in rows:
         item = dict(row)
-        item['segundo'] = max(0, (datetime.fromisoformat(item['fecha_hora']) - start).total_seconds())
+        item['segundo'] = (item['video_segundo'] if item['video_segundo'] is not None else
+                           max(0, (datetime.fromisoformat(item['fecha_hora']) - start).total_seconds()))
         metrics.append(item)
     video_name = f"sesion_{session_id}.mp4"
     video_path = OUTPUTS / "videos" / video_name
@@ -394,7 +422,8 @@ def session_report(session_id):
         if cap.isOpened():
             fps = cap.get(cv2.CAP_PROP_FPS) or 5
             video_info = {"duration": cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps, "fps": fps,
-                          "frame_url": f"/api/reportes/sesion/{session_id}/frame"}
+                          "frame_url": f"/api/reportes/sesion/{session_id}/frame",
+                          "video_url": f"/reportes/video/{session_id}"}
         cap.release()
     return jsonify(sesion=dict(session_row), muestras=metrics, video=video_info)
 
@@ -514,7 +543,7 @@ def download(filename):
 @app.errorhandler(413)
 def too_large(_error):
     flash("El archivo supera el límite de 500 MB.", "error")
-    return redirect(url_for("index") + "#monitoreo")
+    return redirect(url_for("videos") + "#monitoreo")
 
 
 if __name__ == "__main__":

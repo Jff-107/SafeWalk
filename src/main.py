@@ -27,6 +27,8 @@ DB_PATH = os.path.join(OUTPUT_DIR, "safewalk.db")
 CLASES = {0: "Peatón", 1: "Bicicleta", 2: "Auto", 3: "Motocicleta",
           5: "Bus", 7: "Camión"}
 VEHICULOS = {1, 2, 3, 5, 7}
+CONFIANZA_DEFAULT = 0.30
+TAMANO_IMAGEN_DEFAULT = 640
 
 
 def database_connection():
@@ -72,6 +74,8 @@ def preparar_base_datos():
                 conn.execute(f"ALTER TABLE {tabla} ADD COLUMN sesion_id INTEGER REFERENCES sesiones(id)")
             conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{tabla}_sesion ON {tabla}(sesion_id)")
             conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{tabla}_fecha ON {tabla}(fecha_hora)")
+        if "video_segundo" not in {row[1] for row in conn.execute('PRAGMA table_info(metricas)')}:
+            conn.execute('ALTER TABLE metricas ADD COLUMN video_segundo REAL')
         conn.execute('''CREATE VIEW IF NOT EXISTS resumen_sesiones AS SELECT s.*,
             (SELECT COUNT(*) FROM metricas m WHERE m.sesion_id=s.id) AS metricas_total,
             (SELECT COUNT(*) FROM alertas a WHERE a.sesion_id=s.id) AS alertas_total,
@@ -133,15 +137,15 @@ def guardar_alerta(nivel, descripcion, sesion_id=None):
 
 
 def guardar_metrica(peatones, vehiculos, peatones_cruzaron, vehiculos_cruzaron,
-                    fps, medios, altos, sesion_id=None):
+                    fps, medios, altos, sesion_id=None, video_segundo=None):
     with closing(database_connection()) as conn, conn:
         conn.execute("""
             INSERT INTO metricas(fecha_hora, peatones_frame, vehiculos_frame,
                 peatones_cruzaron, vehiculos_cruzaron, fps,
-                riesgo_medio_frame, riesgo_alto_frame, sesion_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                riesgo_medio_frame, riesgo_alto_frame, sesion_id, video_segundo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (datetime.now().isoformat(timespec="seconds"), peatones, vehiculos,
-              peatones_cruzaron, vehiculos_cruzaron, fps, medios, altos, sesion_id))
+              peatones_cruzaron, vehiculos_cruzaron, fps, medios, altos, sesion_id, video_segundo))
         conn.commit()
 
 
@@ -167,7 +171,7 @@ def exportar_reportes():
     print(f"Base de datos: {DB_PATH}")
 
 
-def procesar_video(origen, ruta_modelo=MODEL_DEFAULT, confianza=0.35):
+def procesar_video(origen, ruta_modelo=MODEL_DEFAULT, confianza=CONFIANZA_DEFAULT):
     preparar_base_datos()
     if not os.path.isfile(ruta_modelo):
         raise FileNotFoundError(
@@ -205,7 +209,8 @@ def procesar_video(origen, ruta_modelo=MODEL_DEFAULT, confianza=0.35):
             # ByteTrack intenta mantener IDs entre fotogramas para contar cruces.
             resultados = modelo.track(
                 frame, persist=True, tracker="bytetrack.yaml",
-                classes=list(CLASES.keys()), conf=confianza, verbose=False
+                classes=list(CLASES.keys()), conf=confianza,
+                imgsz=TAMANO_IMAGEN_DEFAULT, verbose=False
             )
             resultado = resultados[0]
             detecciones = []
@@ -332,7 +337,7 @@ def main():
     parser.add_argument("video", nargs="?", default=VIDEO_DEFAULT,
                         help="Ruta del video o índice de cámara, por ejemplo 0")
     parser.add_argument("--modelo", default=MODEL_DEFAULT, help="Ruta al archivo .pt")
-    parser.add_argument("--conf", type=float, default=0.35,
+    parser.add_argument("--conf", type=float, default=CONFIANZA_DEFAULT,
                         help="Confianza mínima de detección (0 a 1)")
     args = parser.parse_args()
     origen = int(args.video) if args.video.isdigit() else args.video
