@@ -9,6 +9,19 @@
     </div>
     <div class="review-counters"><article class="stat"><div class="stat-top">Peatones</div><div class="number" id="r-people">0</div></article><article class="stat"><div class="stat-top">Vehículos</div><div class="number" id="r-vehicles">0</div></article><article class="stat"><div class="stat-top">Riesgo medio / alto</div><div class="number"><span id="r-medium">0</span> / <span id="r-high">0</span></div></article><article class="stat"><div class="stat-top">Cruces peatonales / vehiculares</div><div class="number"><span id="r-pcross">0</span> / <span id="r-vcross">0</span></div></article></div>
   </section>
+  <section class="panel review-summary" aria-labelledby="review-summary-title">
+    <div class="panel-head"><div><h2 id="review-summary-title">Resumen de este análisis</h2><p>Estos valores corresponden solo a la sesión de este video.</p></div></div>
+    <div class="review-summary-grid">
+      <div><span>Máximo de peatones en imagen</span><strong id="s-people">0</strong></div>
+      <div><span>Máximo de vehículos en imagen</span><strong id="s-vehicles">0</strong></div>
+      <div><span>Muestras con riesgo medio</span><strong id="s-medium">0</strong></div>
+      <div><span>Muestras con riesgo alto</span><strong id="s-high">0</strong></div>
+      <div><span>Cruces peatonales</span><strong id="s-pcross">0</strong></div>
+      <div><span>Cruces vehiculares</span><strong id="s-vcross">0</strong></div>
+      <div><span>Alertas registradas</span><strong id="s-alerts">0</strong></div>
+      <div><span>FPS promedio</span><strong id="s-fps">0</strong></div>
+    </div>
+  </section>
   <section class="panel"><div class="panel-head"><div><h2>Métricas durante el video</h2><p>La línea vertical indica el segundo reproducido. Pulsa el gráfico para saltar a ese punto.</p></div></div><div class="trend-container"><canvas id="review-chart" style="width:100%;height:300px"></canvas></div></section>
   <p class="hint">Las detecciones son estimaciones de YOLO y no equivalen a personas únicas ni confirman un accidente.</p>
 </main><script>window.SAFEWALK_REVIEW_ID={{ session_id }};</script><script src="{{ url_for('static', filename='review.js', v=asset_version) }}"></script><script src="{{ url_for('static', filename='theme.js', v=asset_version) }}"></script></body></html>

@@ -21,7 +21,10 @@ PRECISE_IMAGE_SIZE = 832
 OFFLINE_IMAGE_SIZE = 960
 
 class WebVideoProcessor:
+    """Coordina captura, YOLO, seguimiento, reportes y fotogramas para la web."""
+
     def __init__(self):
+        """Prepara estado compartido entre el hilo de análisis y las peticiones HTTP."""
         self.lock = threading.Lock()
         self.condition = threading.Condition(self.lock)
         self.frame_version = 0
@@ -32,6 +35,7 @@ class WebVideoProcessor:
         self.camera_received_fps = 0
         self.camera_last_received = None
         self.camera_display_thread = None
+        self.camera_last_annotated = None
         self.model = None
         self.zone = 'Sin especificar'
         self.source = "video"
@@ -60,6 +64,7 @@ class WebVideoProcessor:
                       "vehiculos_cruzaron": 0, "fps": 0}
 
     def snapshot(self):
+        """Devuelve al panel una copia coherente del estado y contadores actuales."""
         with self.lock:
             return {"running": self.running, "status": self.status,
                     "source": self.source, "has_frame": self.frame_jpeg is not None,
@@ -77,6 +82,7 @@ class WebVideoProcessor:
                     **self.stats}
 
     def start(self, video_path, video_name, fast=True, zone='Sin especificar', offline=False):
+        """Inicia un análisis: video_path=None indica cámara; offline procesa antes de reproducir."""
         with self.lock:
             if self.running:
                 return False, "Ya hay un análisis en ejecución. Espera a que termine."
@@ -92,6 +98,7 @@ class WebVideoProcessor:
             self.camera_sequence = 0
             self.camera_received_fps = 0
             self.camera_last_received = None
+            self.camera_last_annotated = None
             self.camera_token = secrets.token_urlsafe(24) if video_path is None else None
             while not self.camera_frames.empty():
                 self.camera_frames.get_nowait()
@@ -117,6 +124,7 @@ class WebVideoProcessor:
             return True, "Análisis iniciado"
 
     def submit_camera_frame(self, frame, sequence=None, token=None):
+        """Acepta el JPEG decodificado y reemplaza la imagen pendiente si YOLO va atrasado."""
         with self.lock:
             if not self.running or self.source != "camera" or self.stop_requested:
                 return False
@@ -153,7 +161,8 @@ class WebVideoProcessor:
                 if latest is None or latest[2] == version:
                     continue
                 version = latest[2]
-            self._publish_live(latest[0])
+            if not self._publish_live(latest[0]):
+                continue
             now = time.monotonic()
             if last_publish is not None:
                 with self.lock:
@@ -162,6 +171,7 @@ class WebVideoProcessor:
             last_publish = now
 
     def stop(self):
+        """Solicita detener el hilo; _run termina la sesión y libera sus recursos."""
         with self.lock:
             if self.running:
                 self.stop_requested = True
@@ -170,6 +180,7 @@ class WebVideoProcessor:
             return False
 
     def control_video(self, action, seconds=None):
+        """Pausa, reanuda o cambia la posición del video y descarta cajas anteriores."""
         with self.lock:
             if not self.running or self.source != "video" or self.offline:
                 return False, "No hay un video en análisis."
@@ -195,6 +206,7 @@ class WebVideoProcessor:
             return True, "Control aplicado."
 
     def _run(self, video_path):
+        """Procesa cada imagen, detecta objetos, evalúa riesgos y guarda la sesión."""
         cap = None
         recording = None
         session_id = None
@@ -202,6 +214,8 @@ class WebVideoProcessor:
             if not os.path.isfile(MODEL_DEFAULT):
                 raise FileNotFoundError(f"No se encontró el modelo YOLO: {MODEL_DEFAULT}")
             preparar_base_datos()
+            # Cada ejecución tiene su propio ID: métricas y alertas no se mezclan
+            # con los análisis anteriores al construir el resumen del video.
             session_id = iniciar_sesion('video_diferido' if self.offline else self.source, self.video_name, self.zone)
             with self.lock:
                 self.session_id = session_id
@@ -325,6 +339,9 @@ class WebVideoProcessor:
                     for tracker in getattr(getattr(model, 'predictor', None), 'trackers', []):
                         tracker.reset()
                 tracking_shape = (height, width)
+                # AQUÍ SE DETECTAN PEATONES Y VEHÍCULOS.
+                # YOLO devuelve cajas, clase y confianza; ByteTrack añade un ID
+                # estable para seguir al mismo objeto entre imágenes consecutivas.
                 result = model.track(frame, persist=True, tracker="bytetrack.yaml",
                                      classes=list(CLASES.keys()), conf=CONFIDENCE_THRESHOLD,
                                      imgsz=size,
@@ -341,12 +358,16 @@ class WebVideoProcessor:
                     item = {"clase": cls, "nombre": CLASES[cls], "caja": xyxy,
                             "track_id": track_id, "confianza": float(box.conf[0].item())}
                     detections.append(item)
+                    # COCO clase 0 = persona. Las demás clases de CLASES son
+                    # bicicleta, auto, moto, bus y camión: aquí son vehículos.
                     if cls == 0:
                         p_count += 1
                         people.append(item)
                     else:
                         v_count += 1
                         vehicle_boxes.append(xyxy)
+                    # El conteo de cruces requiere un ID y que el centro de la
+                    # caja pase de un lado al otro de la línea horizontal.
                     if track_id is not None:
                         x1, y1, x2, y2 = xyxy
                         cy = (y1+y2)//2
@@ -360,6 +381,8 @@ class WebVideoProcessor:
                         previous[track_id] = (cy, cls)
                 risks=[]; medium=high=0
                 overlapping_pairs = set()
+                # Riesgo visual: compara la caja de cada peatón con las cajas
+                # de vehículos presentes en ESTA misma imagen.
                 for person in people:
                     level, distance = evaluar_riesgo(person["caja"], vehicle_boxes)
                     risks.append((person, level))
@@ -367,6 +390,8 @@ class WebVideoProcessor:
                     elif level == "ALTO": high += 1
                     px1, py1, px2, py2 = person["caja"]
                     person_id = person["track_id"]
+                    # La llamada de emergencia es una simulación opcional:
+                    # exige solapamiento persistente entre objetos seguidos.
                     for vehicle in detections:
                         if vehicle["clase"] == 0:
                             continue
@@ -386,6 +411,8 @@ class WebVideoProcessor:
                         self.simulated_call_count += 1
                     guardar_alerta("ALTO", "SIMULACIÓN: posible accidente por solapamiento persistente de peatón y vehículo; llamada simulada a emergencias.", session_id)
                 overlap_frames = {pair: count for pair, count in overlap_frames.items() if pair in overlapping_pairs}
+                # Dibuja cajas y etiquetas sobre la misma imagen analizada;
+                # así la posición de la caja coincide con el objeto.
                 out = frame.copy()
                 for d in detections:
                     x1,y1,x2,y2=d["caja"]
@@ -397,8 +424,22 @@ class WebVideoProcessor:
                                 color={"BAJO":(0,200,0),"MEDIO":(0,200,255),"ALTO":(0,0,255)}[level]
                                 label=f'Peaton - Riesgo {level}'
                                 break
-                    cv2.rectangle(out,(x1,y1),(x2,y2),color,2)
-                    cv2.putText(out,label,(x1,max(22,y1-8)),cv2.FONT_HERSHEY_SIMPLEX,.55,color,2)
+                    x1, x2 = sorted((max(0, min(width - 1, x1)), max(0, min(width - 1, x2))))
+                    y1, y2 = sorted((max(0, min(height - 1, y1)), max(0, min(height - 1, y2))))
+                    if x2 <= x1 or y2 <= y1:
+                        continue
+                    thickness = max(2, round(min(width, height) / 320))
+                    cv2.rectangle(out, (x1, y1), (x2, y2), color, thickness)
+                    scale = max(.45, min(.7, width / 1000))
+                    (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)
+                    label_x = min(x1, max(0, width - text_width - 10))
+                    label_top = y1 - text_height - baseline - 10 if y1 >= text_height + baseline + 12 else y1 + 2
+                    label_top = min(label_top, max(0, height - text_height - baseline - 9))
+                    label_bottom = min(height - 1, label_top + text_height + baseline + 9)
+                    cv2.rectangle(out, (label_x, label_top),
+                                  (min(width - 1, label_x + text_width + 10), label_bottom), color, -1)
+                    cv2.putText(out, label, (label_x + 5, label_top + text_height + 4),
+                                cv2.FONT_HERSHEY_SIMPLEX, scale, (15, 23, 36), 1, cv2.LINE_AA)
                 cv2.line(out,(0,line_y),(width,line_y),(255,255,0),2)
                 cv2.putText(out,"LINEA DE CONTEO",(10,max(20,line_y-8)),cv2.FONT_HERSHEY_SIMPLEX,.5,(255,255,0),1)
                 fps=1/max(time.perf_counter()-t0,.001)
@@ -415,6 +456,7 @@ class WebVideoProcessor:
                         recording.release()
                         recording = None
                         raise RuntimeError("No se pudo crear el video del reporte.")
+                # Guarda un MP4 anotado para revisar después esta sesión.
                 recording.write(out)
                 if alert_level:
                     alert_text=f"ALERTA DE RIESGO {alert_level}"
@@ -429,6 +471,8 @@ class WebVideoProcessor:
                 counts = (p_count, v_count, total_p, total_v, medium, high)
                 # Una deteccion breve puede desaparecer antes de la siguiente muestra
                 # periodica; guarda tambien cada cambio de los contadores.
+                # SQLite guarda muestras periódicas y también cada cambio,
+                # para que el gráfico y el resumen no omitan detecciones breves.
                 if now-last_save>=1 or counts != last_saved_counts:
                     guardar_metrica(p_count,v_count,total_p,total_v,fps,medium,high,session_id,
                                     source_index / source_fps if self.offline else None)
@@ -441,6 +485,9 @@ class WebVideoProcessor:
                                 "vehiculos_cruzaron":total_v,"fps":round(fps,1)}
                     if isinstance(cap, LiveVideo):
                         self.display_fps = cap.display_fps
+                if cap is None:
+                    # Dibuja las cajas en el mismo fotograma procesado por YOLO.
+                    self._publish_camera_analysis(out, fps)
                 if cap is not None and not self.offline and not isinstance(cap, LiveVideo):
                     ok, encoded=cv2.imencode('.jpg',out,[int(cv2.IMWRITE_JPEG_QUALITY),70])
                     if ok:
@@ -481,16 +528,30 @@ class WebVideoProcessor:
         with self.lock:
             self.status=status
 
+    def _publish_camera_analysis(self, frame, fps):
+        """Entrega al navegador la imagen exacta donde se dibujaron las cajas."""
+        ok, encoded = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
+        if ok:
+            with self.condition:
+                self.camera_last_annotated = time.monotonic()
+                self.display_fps = fps
+                self.frame_jpeg = encoded.tobytes()
+                self.frame_version += 1
+                self.condition.notify_all()
+
     def _publish_live(self, frame):
         """No espera a YOLO: muestra fotogramas nuevos con la detección más reciente."""
         with self.lock:
             overlay = self.overlay
             stats = dict(self.stats)
+            if self.source == "camera" and self.camera_last_annotated is not None:
+                if time.monotonic() - self.camera_last_annotated < 1.5:
+                    return False
             if self.live_cap is not None and self.source == "video":
                 self.video_position = self.live_cap.playback_position()
         out = frame.copy()
         height, width = out.shape[:2]
-        if overlay is not None and time.monotonic() - overlay[0] <= .5 and overlay[3] == frame.shape[:2]:
+        if self.source != "camera" and overlay is not None and time.monotonic() - overlay[0] <= .5 and overlay[3] == frame.shape[:2]:
             _, detections, risks, _ = overlay
             levels = {id(person): level for person, level in risks}
             for detection in detections:
@@ -502,7 +563,7 @@ class WebVideoProcessor:
                 cv2.putText(out, label, (x1, max(20, y1-6)), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 1)
         line_y = int(height * .65)
         cv2.line(out, (0, line_y), (width, line_y), (255, 255, 0), 2)
-        if stats['riesgo_alto'] or stats['riesgo_medio']:
+        if self.source != "camera" and (stats['riesgo_alto'] or stats['riesgo_medio']):
             level = 'ALTO' if stats['riesgo_alto'] else 'MEDIO'
             color = (0, 0, 255) if level == 'ALTO' else (0, 165, 255)
             cv2.rectangle(out, (0, height-35), (width, height), color, -1)
@@ -510,8 +571,13 @@ class WebVideoProcessor:
         ok, encoded = cv2.imencode('.jpg', out, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         if ok:
             with self.condition:
+                if self.source == "camera" and self.camera_last_annotated is not None:
+                    if time.monotonic() - self.camera_last_annotated < 1.5:
+                        return False
                 self.frame_jpeg = encoded.tobytes()
                 self.frame_version += 1
                 self.condition.notify_all()
+            return True
+        return False
 
 processor=WebVideoProcessor()

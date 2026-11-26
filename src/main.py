@@ -23,7 +23,8 @@ VIDEO_DEFAULT = os.path.join(ROOT, "data", "videos", "videoTransito.mp4")
 OUTPUT_DIR = os.path.join(ROOT, "outputs")
 DB_PATH = os.path.join(OUTPUT_DIR, "safewalk.db")
 
-# Clases COCO de YOLOv8: persona, bicicleta, auto, moto, bus y camión.
+# IDs del conjunto COCO que YOLO reconoce. El 0 representa personas;
+# los demás IDs permitidos se tratan como vehículos en SafeWalk.
 CLASES = {0: "Peatón", 1: "Bicicleta", 2: "Auto", 3: "Motocicleta",
           5: "Bus", 7: "Camión"}
 VEHICULOS = {1, 2, 3, 5, 7}
@@ -32,12 +33,14 @@ TAMANO_IMAGEN_DEFAULT = 640
 
 
 def database_connection():
+    """Abre SQLite con claves foráneas activadas para relacionar sesiones y registros."""
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute('PRAGMA foreign_keys=ON')
     return conn
 
 
 def preparar_base_datos():
+    """Crea o actualiza sesiones, métricas, alertas e índices sin borrar datos previos."""
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     with closing(database_connection()) as conn, conn:
         conn.execute("PRAGMA journal_mode=WAL")
@@ -87,6 +90,7 @@ def preparar_base_datos():
 
 
 def iniciar_sesion(fuente, nombre, zona='Sin especificar'):
+    """Crea una ejecución independiente de video o cámara y devuelve su ID."""
     with closing(database_connection()) as conn, conn:
         return conn.execute(
             "INSERT INTO sesiones(fuente,nombre,inicio,estado,zona) VALUES (?,?,?,?,?)",
@@ -95,6 +99,7 @@ def iniciar_sesion(fuente, nombre, zona='Sin especificar'):
 
 
 def finalizar_sesion(sesion_id, estado):
+    """Marca el fin de una ejecución y conserva sus registros para el historial."""
     with closing(database_connection()) as conn, conn:
         conn.execute("UPDATE sesiones SET fin=?, estado=? WHERE id=?",
                      (datetime.now().isoformat(timespec="seconds"), estado, sesion_id))
@@ -117,6 +122,8 @@ def evaluar_riesgo(caja_persona, cajas_vehiculos):
     if not cajas_vehiculos:
         return "BAJO", None
     x1, y1, x2, y2 = caja_persona
+    # La distancia se divide por la altura aparente del peatón para adaptar
+    # el umbral a objetos cercanos o lejanos en la imagen.
     altura_persona = max(y2 - y1, 1)
     distancia = min(distancia_cajas(caja_persona, v) for v in cajas_vehiculos)
     relativa = distancia / altura_persona
@@ -128,6 +135,7 @@ def evaluar_riesgo(caja_persona, cajas_vehiculos):
 
 
 def guardar_alerta(nivel, descripcion, sesion_id=None):
+    """Guarda la alerta con el ID del análisis que la produjo."""
     with closing(database_connection()) as conn, conn:
         conn.execute(
             "INSERT INTO alertas(fecha_hora, nivel, descripcion, sesion_id) VALUES (?, ?, ?, ?)",
@@ -138,6 +146,7 @@ def guardar_alerta(nivel, descripcion, sesion_id=None):
 
 def guardar_metrica(peatones, vehiculos, peatones_cruzaron, vehiculos_cruzaron,
                     fps, medios, altos, sesion_id=None, video_segundo=None):
+    """Guarda los conteos de una muestra; no son personas únicas del video."""
     with closing(database_connection()) as conn, conn:
         conn.execute("""
             INSERT INTO metricas(fecha_hora, peatones_frame, vehiculos_frame,
@@ -172,6 +181,7 @@ def exportar_reportes():
 
 
 def procesar_video(origen, ruta_modelo=MODEL_DEFAULT, confianza=CONFIANZA_DEFAULT):
+    """Modo de terminal: abre un archivo/webcam y muestra detecciones con OpenCV."""
     preparar_base_datos()
     if not os.path.isfile(ruta_modelo):
         raise FileNotFoundError(
@@ -207,6 +217,8 @@ def procesar_video(origen, ruta_modelo=MODEL_DEFAULT, confianza=CONFIANZA_DEFAUL
                 break
             t0 = time.time()
             # ByteTrack intenta mantener IDs entre fotogramas para contar cruces.
+            # AQUÍ se hace la inferencia de este modo de terminal. La interfaz
+            # web usa el mismo modelo/clases desde WebVideoProcessor._run.
             resultados = modelo.track(
                 frame, persist=True, tracker="bytetrack.yaml",
                 classes=list(CLASES.keys()), conf=confianza,
@@ -230,6 +242,7 @@ def procesar_video(origen, ruta_modelo=MODEL_DEFAULT, confianza=CONFIANZA_DEFAUL
                              "caja": xyxy, "track_id": track_id,
                              "confianza": float(caja.conf[0].item())}
                 detecciones.append(deteccion)
+                # Persona = peatón; las otras clases permitidas son vehículos.
                 if clase_id == 0:
                     peatones += 1
                     cajas_personas.append(deteccion)
@@ -257,6 +270,8 @@ def procesar_video(origen, ruta_modelo=MODEL_DEFAULT, confianza=CONFIANZA_DEFAUL
             frame_out = frame.copy()
             medios = altos = 0
             riesgos = []
+            # El riesgo se calcula para cada persona frente a todos los
+            # vehículos visibles en el fotograma actual.
             for persona in cajas_personas:
                 nivel, distancia = evaluar_riesgo(persona["caja"], cajas_vehiculos)
                 riesgos.append((persona, nivel, distancia))

@@ -3,7 +3,7 @@
   function apply(theme){
     const dark=theme==='dark';document.body.classList.toggle('dark-mode',dark);
     document.querySelectorAll('[data-theme-toggle]').forEach(button=>{
-      button.textContent=dark?'☀️ Modo claro':'🌙 Modo oscuro';
+      button.textContent=dark?'Modo claro':'Modo oscuro';
       button.setAttribute('aria-label',dark?'Activar modo claro':'Activar modo oscuro');
       button.setAttribute('aria-pressed',String(dark));
     });
@@ -23,4 +23,17 @@
     const hidden=!document.body.classList.contains('sidebar-hidden');
     localStorage.setItem('safewalk-sidebar-hidden',String(hidden));setSidebar(hidden);
   });
+  function updateNavigation() {
+    const section = ['#alertas', '#reportes', '#registros'].includes(location.hash) ? location.hash : '';
+    document.querySelectorAll('.sidebar nav a').forEach(link => {
+      const target = new URL(link.href, location.href);
+      const active = target.pathname === location.pathname &&
+        (location.pathname === '/' ? target.hash === section : true);
+      link.classList.toggle('active', active);
+      if (active) link.setAttribute('aria-current', section ? 'location' : 'page');
+      else link.removeAttribute('aria-current');
+    });
+  }
+  updateNavigation();
+  window.addEventListener('hashchange', updateNavigation);
 })();

@@ -32,7 +32,8 @@ preparar_base_datos()
 
 @app.context_processor
 def asset_versions():
-    return {'asset_version': max(path.stat().st_mtime_ns for path in (ROOT / 'static').glob('*.js'))}
+    assets = list((ROOT / 'static').glob('*.js')) + list((ROOT / 'static').glob('*.css'))
+    return {'asset_version': max(path.stat().st_mtime_ns for path in assets)}
 
 
 @app.after_request
@@ -104,6 +105,7 @@ def mobile_camera():
 
 
 def read_dashboard():
+    """Lee indicadores globales del panel; el resumen por video se calcula aparte."""
     data = {"available": DB_PATH.exists(), "peatones": 0, "vehiculos": 0,
             "peatones_cruzaron": 0, "vehiculos_cruzaron": 0, "riesgo_medio": 0,
             "riesgo_alto": 0, "fps": 0, "metricas_total": 0, "alertas_total": 0,
@@ -136,27 +138,84 @@ def read_dashboard():
     return data
 
 
+def analysis_session(conn, source, snapshot):
+    """Selecciona la sesión visible; evita mostrar la anterior al iniciar otra."""
+    if snapshot["running"] and snapshot["source"] == source:
+        if snapshot["session_id"] is None:
+            return None
+        return conn.execute("SELECT * FROM sesiones WHERE id=?", (snapshot["session_id"],)).fetchone()
+    if snapshot["source"] == source and snapshot["session_id"] is not None:
+        current = conn.execute("SELECT * FROM sesiones WHERE id=?", (snapshot["session_id"],)).fetchone()
+        if current is not None:
+            return current
+    if source == "video":
+        return conn.execute(
+            "SELECT * FROM sesiones WHERE fuente IN ('video', 'video_diferido') ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    return conn.execute("SELECT * FROM sesiones WHERE fuente='camera' ORDER BY id DESC LIMIT 1").fetchone()
+
+
+def read_analysis_summary(source="video", snapshot=None, session_id=None):
+    """Agrega SOLO las métricas de una sesión para el resumen del video/reporte."""
+    snapshot = snapshot or processor.snapshot()
+    result = {"sesion": None, "max_peatones": 0, "max_vehiculos": 0,
+              "muestras_riesgo_medio": 0, "muestras_riesgo_alto": 0,
+              "peatones_cruzaron": 0, "vehiculos_cruzaron": 0,
+              "alertas": 0, "fps": 0, "muestras": 0}
+    if not DB_PATH.exists():
+        return result
+    with closing(sqlite3.connect(DB_PATH, timeout=5)) as conn:
+        conn.row_factory = sqlite3.Row
+        selected = (conn.execute("SELECT * FROM sesiones WHERE id=?", (session_id,)).fetchone()
+                    if session_id is not None else analysis_session(conn, source, snapshot))
+        if selected is None:
+            return result
+        result["sesion"] = dict(selected)
+        # MAX = máximo simultáneo en un fotograma, no total de objetos únicos.
+        # Las muestras con riesgo se cuentan cuando hay al menos una persona
+        # en ese nivel; los cruces usan el máximo acumulado de la sesión.
+        metrics = conn.execute("""SELECT COUNT(*) muestras,
+            MAX(peatones_frame) max_peatones, MAX(vehiculos_frame) max_vehiculos,
+            SUM(CASE WHEN riesgo_medio_frame > 0 THEN 1 ELSE 0 END) muestras_riesgo_medio,
+            SUM(CASE WHEN riesgo_alto_frame > 0 THEN 1 ELSE 0 END) muestras_riesgo_alto,
+            MAX(peatones_cruzaron) peatones_cruzaron,
+            MAX(vehiculos_cruzaron) vehiculos_cruzaron, AVG(fps) fps
+            FROM metricas WHERE sesion_id=?""", (selected["id"],)).fetchone()
+        for key in ("max_peatones", "max_vehiculos", "muestras_riesgo_medio",
+                    "muestras_riesgo_alto", "peatones_cruzaron", "vehiculos_cruzaron", "muestras"):
+            result[key] = int(metrics[key] or 0)
+        result["fps"] = round(float(metrics["fps"] or 0), 1)
+        result["alertas"] = conn.execute(
+            "SELECT COUNT(*) FROM alertas WHERE sesion_id=?", (selected["id"],)
+        ).fetchone()[0]
+    return result
+
+
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html", d=read_dashboard(), p=processor.snapshot(), mode="video")
+    return render_template("index.html", d=read_dashboard(), p=processor.snapshot(),
+                           summary=read_analysis_summary(), mode="dashboard")
 
 
 @app.get('/videos')
 def videos():
-    return render_template("index.html", d=read_dashboard(), p=processor.snapshot(), mode="video")
+    return render_template("index.html", d=read_dashboard(), p=processor.snapshot(),
+                           summary=read_analysis_summary(), mode="video")
 
 
 @app.get('/en-vivo')
 def live_camera():
-    return render_template("index.html", d=read_dashboard(), p=processor.snapshot(), mode="camera")
+    return render_template("index.html", d=read_dashboard(), p=processor.snapshot(),
+                           summary=read_analysis_summary("camera"), mode="camera")
 
 
 @app.route("/subir-video", methods=["POST"])
 def upload_video():
+    """Valida la subida y arranca WebVideoProcessor en segundo plano."""
     file = request.files.get("video")
     if not file or not file.filename:
         flash("Selecciona un video antes de iniciar el análisis.", "error")
@@ -218,6 +277,7 @@ def video_feed():
 
 @app.get('/api/video/frame')
 def current_video_frame():
+    """Entrega el JPEG más reciente al visor sin recalcular YOLO por petición."""
     after = request.args.get('after', type=int)
     with processor.condition:
         if after is not None and after == processor.frame_version and processor.running:
@@ -231,6 +291,7 @@ def current_video_frame():
 
 @app.post('/api/video/control')
 def video_control():
+    """Convierte los botones de reproducción en órdenes para el procesador."""
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify(message='Solicitud inválida.'), 400
@@ -240,6 +301,7 @@ def video_control():
 
 @app.post("/api/camera/start")
 def start_camera():
+    """Abre una sesión de cámara y devuelve el token de sus fotogramas."""
     data = request.get_json(silent=True) or {}
     started, message = processor.start(None, "Cámara del navegador", zone=data.get('zona', 'Sin especificar'))
     with processor.lock:
@@ -249,6 +311,7 @@ def start_camera():
 
 @app.post("/api/camera/frame")
 def camera_frame():
+    """Recibe cada JPEG del navegador, valida su sesión y lo pone en la cola."""
     if request.content_length is None or request.content_length > 1024 * 1024:
         return jsonify(message="Fotograma demasiado grande (máximo 1 MB)."), 413
     sequence = request.headers.get('X-Frame-Sequence')
@@ -288,7 +351,11 @@ def stop_camera():
 
 @app.route("/api/dashboard")
 def api_dashboard():
-    return jsonify({"dashboard": read_dashboard(), "analysis": processor.snapshot()})
+    """Envía contadores actuales y el resumen de la sesión solicitada cada segundo."""
+    source = "camera" if request.args.get("fuente") == "camera" else "video"
+    snapshot = processor.snapshot()
+    return jsonify({"dashboard": read_dashboard(), "analysis": snapshot,
+                    "summary": read_analysis_summary(source, snapshot)})
 
 
 @app.post("/api/accident-simulation")
@@ -319,9 +386,11 @@ def statistics():
 
 @app.get("/api/tendencias")
 def live_trends():
+    """Devuelve las últimas muestras de esa sesión para dibujar el gráfico en vivo."""
+    source = "camera" if request.args.get("fuente") == "camera" else "video"
     with closing(sqlite3.connect(DB_PATH)) as conn:
         conn.row_factory = sqlite3.Row
-        session = conn.execute("SELECT * FROM sesiones ORDER BY id DESC LIMIT 1").fetchone()
+        session = analysis_session(conn, source, processor.snapshot())
         rows = conn.execute("""SELECT id, fecha_hora, peatones_frame, vehiculos_frame,
             riesgo_medio_frame, riesgo_alto_frame, fps FROM metricas
             WHERE sesion_id=? ORDER BY id DESC LIMIT 120""",
@@ -398,6 +467,7 @@ def review_session(session_id):
 
 @app.get("/api/reportes/sesion/<int:session_id>")
 def session_report(session_id):
+    """Recupera video, muestras y resumen histórico del análisis seleccionado."""
     from datetime import datetime
     with closing(sqlite3.connect(DB_PATH)) as conn:
         conn.row_factory = sqlite3.Row
@@ -425,7 +495,8 @@ def session_report(session_id):
                           "frame_url": f"/api/reportes/sesion/{session_id}/frame",
                           "video_url": f"/reportes/video/{session_id}"}
         cap.release()
-    return jsonify(sesion=dict(session_row), muestras=metrics, video=video_info)
+    return jsonify(sesion=dict(session_row), muestras=metrics, video=video_info,
+                   resumen=read_analysis_summary(session_id=session_id))
 
 
 @app.get("/api/reportes/sesion/<int:session_id>/frame")

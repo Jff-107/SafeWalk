@@ -17,3 +17,56 @@ body.sidebar-hidden .sidebar{display:flex;visibility:hidden;width:0;min-width:0;
 .playback-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}.playback-controls button{border:1px solid var(--line);border-radius:7px;padding:9px 12px;background:var(--blue);color:#fff;cursor:pointer}.playback-controls button:disabled{opacity:.45;cursor:not-allowed}.playback-controls input[type=range]{flex:1;min-width:140px}.playback-controls #video-time{font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}.playback-controls #video-control-message{font-size:11px;color:var(--red)}
 .playback-controls[hidden],#offline-progress[hidden],#offline-result[hidden]{display:none!important}#offline-result{margin:18px 0}#offline-report-link{display:inline-block;text-decoration:none}
 .review-screen video{width:100%;max-height:70vh;display:block;background:#101827}.review-player>#review-time{display:block;margin-top:10px}
+.review-summary{margin:0 0 18px}.review-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.review-summary-grid>div{padding:14px;background:#f7f9fc;border-radius:10px;display:flex;flex-direction:column;gap:8px}.review-summary-grid span{font-size:11px;color:var(--muted)}.review-summary-grid strong{font-size:22px;color:var(--ink)}@media(max-width:760px){.review-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}body.dark-mode .review-summary-grid>div{background:#111c2c}
+
+/* Interfaz ligera: el visor y la información útil ocupan el primer plano. */
+body{--bg:#f6f8f7;--surface:#fff;--ink:#172725;--muted:#637470;--line:#e1e9e5;--blue:#087866;--cyan:#087866;--navy:#fff;--green:#087866;background:var(--bg)}
+.sidebar{background:var(--surface);color:var(--ink);border-right:1px solid var(--line);padding:26px 16px}
+.brand{padding:0 8px 28px}.brand-icon{background:#e3f3ed;color:#087866;border-radius:11px;font-size:22px}
+.brand small,.nav-label,.side-bottom small{color:var(--muted)}.nav{color:var(--muted);font-weight:550}
+.nav.active{background:#e9f5f0;color:#075e51}.nav:hover{background:#f0f5f2;color:var(--ink)}
+.side-bottom{border-color:var(--line);color:var(--muted)}.brand-toggle{background:var(--surface);border-color:var(--line);color:var(--ink)}
+.brand-toggle:hover{background:#edf5f1;border-color:#9bc5b9}
+.main{max-width:1480px;padding:36px 38px}header{margin-bottom:26px}h1{font-size:30px;letter-spacing:-.7px}
+.eyebrow{color:var(--blue)}.status,.theme-toggle{background:var(--surface);border:1px solid var(--line);color:var(--ink)}
+.panel,.stat,.mini-stat{box-shadow:none;border-radius:15px}.panel{padding:24px}.panel-head{margin-bottom:18px}
+.pill{background:#e9f5f0;color:#075e51;font-weight:650}.stat-icon.blue,.stat-icon.cyan{background:#e9f5f0;color:#087866}
+.upload-form{background:#fafcfb;border:1px solid var(--line);border-radius:12px}.primary-button{background:#087866;border-radius:9px}
+.primary-button:hover{background:#076453}.stop-button{width:auto;margin:0;border:1px solid #eed8d8;background:#fff5f5;color:#a63b45;border-radius:9px}
+.stop-button:hover:not(:disabled){background:#fcebec}.video-screen{border:1px solid #253935;border-radius:13px}
+.data-note{background:#f8faf9;border:1px solid var(--line);border-radius:10px;font-size:12px}
+.live-values>div{background:#f8faf9;border-radius:10px}.live-values small{font-size:11px}.live-values strong{color:var(--ink)}
+.mobile-connect{display:block;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0;margin:0 0 18px}
+.mobile-connect summary{cursor:pointer;list-style:none;padding:16px 18px;font-size:13px;font-weight:650;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.mobile-connect summary::-webkit-details-marker{display:none}.mobile-connect summary::before{content:'+';font-size:20px;color:var(--blue);margin-right:8px}
+.mobile-connect[open] summary::before{content:'−'}.mobile-connect summary span{font-size:11px;font-weight:500;color:var(--muted);margin-left:auto}
+.mobile-connect-body{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:0 18px 18px;border-top:1px solid var(--line)}
+.mobile-connect-body p{font-size:12px;line-height:1.6;overflow-wrap:anywhere}.mobile-connect-body img{background:white;border-radius:8px;flex-shrink:0}
+.mode-camera #monitoreo{display:flex;flex-direction:column}.mode-camera #monitoreo>.panel-head{order:0}
+.mode-camera .camera-controls{order:1;display:grid;grid-template-columns:minmax(145px,1fr) minmax(150px,1fr) auto;align-items:end;gap:12px;margin:0 0 16px;padding:17px}
+.camera-intro{grid-column:1/-1}.camera-intro strong{font-size:14px}.camera-intro p{font-size:12px;color:var(--muted);margin:5px 0 0}
+.camera-field{display:flex;flex-direction:column;gap:7px;font-size:11px;font-weight:650;color:var(--muted)}
+.camera-field select,.camera-field input{height:41px;width:100%;min-width:0;padding:0 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px}
+.camera-actions{display:flex;gap:8px;align-items:center}.camera-actions button{height:41px;padding:0 14px;white-space:nowrap}
+#camera-message{grid-column:1/-1;font-size:11px;color:var(--muted);min-height:16px}
+.mode-camera .video-layout{order:2;grid-template-columns:minmax(0,1.75fr) minmax(220px,.55fr);gap:14px}
+.mode-camera .video-screen{width:100%;min-height:300px;aspect-ratio:16/9;align-self:start}
+.mode-camera .video-side{display:flex;flex-direction:column;gap:10px}.mode-camera .video-side .data-note{margin:0;padding:13px;gap:7px}
+.mode-camera .video-side form{margin-top:auto}.mode-camera .video-side .stop-button{width:100%}
+.mode-camera .video-side>.hint{margin:0}.mode-camera .monitor-values{order:3;margin:16px 0 18px;grid-template-columns:repeat(3,minmax(0,1fr))}
+.mode-camera .monitor-values>div{padding:12px 14px}.mode-camera .monitor-values strong{font-size:21px}
+.mode-camera .mobile-connect{order:4}.mode-camera #monitoreo>.hint{order:5;margin:0 0 12px}
+.mode-camera .video-placeholder{color:#d5e2dd}.mode-camera .video-placeholder>span{background:#213d36}
+body.dark-mode{--bg:#111b1a;--surface:#1a2826;--ink:#edf6f1;--muted:#a8b9b2;--line:#344540;--navy:#1a2826;--blue:#63c9aa;--cyan:#63c9aa}
+body.dark-mode .sidebar{background:var(--surface);color:var(--ink);border-color:var(--line)}
+body.dark-mode .nav{color:var(--muted)}body.dark-mode .nav.active{background:#24483e;color:#d9f8e9}
+body.dark-mode .nav:hover{background:#263d36;color:var(--ink)}body.dark-mode .brand-icon{background:#24483e;color:#a4e9cf}
+body.dark-mode .brand-toggle{background:var(--surface);color:var(--ink);border-color:var(--line)}
+body.dark-mode .mobile-connect{background:var(--surface);border-color:var(--line)}body.dark-mode .mobile-connect-body{border-color:var(--line)}
+body.dark-mode .camera-field select,body.dark-mode .camera-field input{background:#172421;color:var(--ink);border-color:var(--line)}
+body.dark-mode .pill{background:#24483e;color:#a4e9cf}body.dark-mode .stop-button{background:#422b2d;color:#f6c3c5;border-color:#6b3e40}
+body.dark-mode .data-note,body.dark-mode .live-values>div,body.dark-mode .upload-form{background:#1d302b;border-color:var(--line)}
+@media(max-width:1100px){.mode-camera .video-layout{grid-template-columns:1fr}.mode-camera .video-side{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.mode-camera .video-side form{margin:0}}
+@media(max-width:800px){.main{padding:26px 20px}.mode-camera .camera-controls{grid-template-columns:repeat(2,minmax(0,1fr))}.camera-actions{grid-column:1/-1}.mode-camera .monitor-values{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.main{padding:20px 14px}.sidebar{padding:14px}.brand{padding-bottom:12px}.sidebar .nav.nav-mode{display:flex}.panel{padding:16px}.mode-camera .video-screen{min-height:210px}.mode-camera .video-side{grid-template-columns:1fr}.mobile-connect-body{flex-direction:column;align-items:flex-start}}
+@media(max-width:480px){.mode-camera .camera-controls{grid-template-columns:1fr}.camera-actions{grid-column:1}.camera-actions button{flex:1}.mode-camera .monitor-values{gap:8px}.mode-camera .monitor-values>div{padding:10px}.mode-camera .monitor-values strong{font-size:19px}}

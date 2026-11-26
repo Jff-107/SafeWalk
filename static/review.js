@@ -18,6 +18,7 @@
   async function tick(){if(!playing)return;setPosition(position+.2);if(position>=duration){playing=false;playButton.textContent='▶ Reproducir';return;}setTimeout(tick,200);}
   fetch(`/api/reportes/sesion/${window.SAFEWALK_REVIEW_ID}`,{cache:'no-store'}).then(async r=>{if(!r.ok)throw Error('No se encontró este reporte.');return r.json();}).then(data=>{
     rows=data.muestras;document.getElementById('review-title').textContent=`${data.sesion.nombre} · ${data.sesion.fuente} · ${data.sesion.inicio}`;
+    if(data.resumen) for(const [id,key] of [['s-people','max_peatones'],['s-vehicles','max_vehiculos'],['s-medium','muestras_riesgo_medio'],['s-high','muestras_riesgo_alto'],['s-pcross','peatones_cruzaron'],['s-vcross','vehiculos_cruzaron'],['s-alerts','alertas'],['s-fps','fps']]) document.getElementById(id).textContent=data.resumen[key]??0;
     if(data.video){duration=data.video.duration||0;frameUrl=data.video.frame_url;if(seek)seek.max=duration;showFrame();}else{(native||image).parentElement.outerHTML='<div class="notice warning">Este reporte no tiene un video guardado. Los reportes antiguos solo tienen sus datos.</div>';}
     updateMetrics();
   }).catch(e=>document.getElementById('review-title').textContent=e.message);

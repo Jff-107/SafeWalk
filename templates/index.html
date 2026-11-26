@@ -1,26 +1,31 @@
 <!doctype html>
+{% set page_title = 'Panel general' if mode == 'dashboard' else ('Videos grabados' if mode == 'video' else 'Cámara en vivo') %}
 <html lang="es">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SafeWalk | {{ "Videos grabados" if mode == "video" else "Cámara en vivo" }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <title>SafeWalk | {{ page_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=asset_version) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css', v=asset_version) }}">
 </head>
-<body>
+<body class="mode-{{ mode }}" data-analysis-source="{{ 'camera' if mode == 'camera' else 'video' }}">
   <aside class="sidebar">
     <div class="brand"><div class="brand-icon">S</div><div class="brand-name"><strong>SafeWalk</strong><small>MONITOREO INTELIGENTE</small></div><button type="button" id="sidebar-toggle" class="brand-toggle" aria-label="Ocultar menú" aria-expanded="true" title="Ocultar menú">☰</button></div>
     <div class="nav-label">MENÚ PRINCIPAL</div>
-    <a class="nav" href="/#estadisticas">▦ <span>Panel general</span></a>
-    <a class="nav {{ 'active' if mode == 'video' else '' }}" href="{{ url_for('videos') }}#monitoreo">Videos grabados</a>
-    <a class="nav {{ 'active' if mode == 'camera' else '' }}" href="{{ url_for('live_camera') }}#monitoreo">Cámara en vivo</a>
-    <a class="nav" href="#alertas">⚠ <span>Alertas registradas</span></a>
-    <a class="nav" href="#reportes">▤ <span>Reportes y datos</span></a>
-    <a class="nav" href="#registros">▤ <span>Consultar SQLite</span></a>
+    <nav aria-label="Menú principal">
+    <a class="nav nav-mode {{ 'active' if mode == 'video' else '' }}" href="{{ url_for('videos') }}#monitoreo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4z M10 8l6 4-6 4z"/></svg><span>Videos grabados</span></a>
+    <a class="nav nav-mode {{ 'active' if mode == 'camera' else '' }}" href="{{ url_for('live_camera') }}#monitoreo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h12v12H3z M15 10l6-4v12l-6-4"/></svg><span>Cámara en vivo</span></a>
+    <a class="nav {{ 'active' if mode == 'dashboard' else '' }}" href="{{ url_for('index') }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"/></svg><span>Panel general</span></a>
+    <a class="nav" href="{{ url_for('index') }}#alertas"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L2 21h20z M12 9v5 M12 17v1"/></svg><span>Alertas</span></a>
+    <a class="nav" href="{{ url_for('index') }}#reportes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5z M14 3v5h5 M9 12h6 M9 16h6"/></svg><span>Reportes</span></a>
+    <a class="nav" href="{{ url_for('index') }}#registros"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5c0-4 16-4 16 0s-16 4-16 0v14c0 4 16 4 16 0V5 M4 12c0 4 16 4 16 0"/></svg><span>Registros</span></a>
+    </nav>
     <div class="side-bottom"><span class="live-dot"></span> Panel conectado<br><small>Datos locales del proyecto</small></div>
   </aside>
   <main class="main">
-    <header><div><p class="eyebrow">SAFEWALK / MONITOREO Y DATOS</p><h1>Centro de monitoreo</h1><p class="sub">Prevención de riesgos peatonales y seguimiento del flujo vial.</p></div><div class="header-actions"><button type="button" class="theme-toggle" data-theme-toggle aria-label="Activar modo oscuro">🌙 Modo oscuro</button><div class="status"><span class="live-dot"></span> Panel disponible</div></div></header>
+    <header><div><p class="eyebrow">SAFEWALK / MONITOREO</p><h1>{{ page_title }}</h1><p class="sub">{{ 'Una vista del tránsito, las detecciones y tus análisis.' if mode == 'dashboard' else 'Detección y seguimiento del tránsito en tiempo real.' }}</p></div><div class="header-actions"><button type="button" class="theme-toggle" data-theme-toggle aria-label="Activar modo oscuro">Modo oscuro</button><div class="status"><span class="live-dot"></span> Panel disponible</div></div></header>
     {% if not d.available %}<div class="notice warning">Aún no se encuentra la base de datos. Ejecuta primero el análisis con <code>python -m src.main data/videos/videoTransito.mp4</code>.</div>{% endif %}
     {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-list">{% for category, message in messages %}<div class="notice {{ 'success' if category == 'success' else 'warning' }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+    {% if mode != 'dashboard' %}
     <section class="panel monitor-panel" id="monitoreo">
       <div class="panel-head"><div><h2>{{ "Análisis de videos" if mode == "video" else "Detección con cámara en vivo" }}</h2><p>{{ "Sube un video para analizar sus fotogramas con YOLO." if mode == "video" else "Conecta una cámara de laptop o celular para analizar el tránsito en vivo." }}</p></div><span class="pill" id="analysis-status">{{ p.status }}</span></div>
       {% if mode == "video" %}
@@ -33,27 +38,26 @@
       </form>
       {% endif %}
       {% if mode == "camera" %}
-      <p class="hint">La cámara y los videos usan el mismo modelo YOLO y las mismas clases. La cámara analiza imágenes recibidas en vivo; el video analiza fotogramas del archivo.</p>
-      <div class="upload-form">
-        <div><strong>Cámara de laptop o celular</strong><p class="hint">Permite el acceso a la cámara. En celular abre esta página mediante HTTPS; usa la cámara trasera para observar el tránsito.</p></div>
-        <select id="camera-facing" aria-label="Cámara"><option value="environment">Trasera / exterior</option><option value="user">Frontal</option></select>
-        <input id="camera-zone" maxlength="120" placeholder="Zona de la cámara" aria-label="Zona de la cámara">
-        <button type="button" class="primary-button" id="start-camera">Activar cámara</button>
-        <button type="button" class="stop-button" id="stop-camera" disabled>Apagar cámara</button>
-        <span id="camera-message" role="status"></span>
+      <div class="upload-form camera-controls">
+        <div class="camera-intro"><strong>Fuente de imagen</strong><p>Activa la cámara de este equipo para comenzar el análisis.</p></div>
+        <label class="camera-field">Cámara <select id="camera-facing"><option value="environment">Trasera / exterior</option><option value="user">Frontal</option></select></label>
+        <label class="camera-field">Zona <input id="camera-zone" maxlength="120" placeholder="Ej. Cruce principal"></label>
+        <div class="camera-actions"><button type="button" class="primary-button" id="start-camera">Activar cámara</button>
+        <button type="button" class="stop-button" id="stop-camera" disabled>Apagar</button></div>
+        <span id="camera-message" role="status" aria-live="polite">Esperando conexión.</span>
         <video id="camera-preview" autoplay muted playsinline hidden></video>
       </div>
-      <div class="mobile-connect">
-        <div><h2>Conectar mi celular como cámara</h2><p id="mobile-connection-status">Para habilitar el enlace HTTPS y el QR, inicia <code>.venv\Scripts\python.exe iniciar_movil.py</code>. Abre el panel desde el enlace que aparecerá en esa terminal.</p><a id="mobile-phone-link" hidden target="_blank" rel="noopener noreferrer">Abrir cámara del celular</a><p class="hint">La laptop muestra las detecciones; el celular transmite desde su cámara. El enlace es privado para tu demostración y cambia cada vez que reinicias el modo celular.</p></div>
-        <img id="mobile-qr" width="180" height="180" alt="Escanea para vincular la cámara del celular" hidden>
-      </div>
+      <details class="mobile-connect"><summary>Usar la cámara del celular <span>Conexión por QR</span></summary>
+        <div class="mobile-connect-body"><div><p id="mobile-connection-status">Para habilitar el enlace HTTPS y el QR, inicia <code>.venv\Scripts\python.exe iniciar_movil.py</code>. Abre el panel desde el enlace que aparecerá en esa terminal.</p><a id="mobile-phone-link" hidden target="_blank" rel="noopener noreferrer">Abrir cámara del celular</a><p class="hint">El celular envía imágenes y esta pantalla muestra el análisis.</p></div>
+        <img id="mobile-qr" width="180" height="180" alt="Escanea para vincular la cámara del celular" hidden></div>
+      </details>
       {% endif %}
       <p class="hint">Conteo actual del último fotograma analizado; se actualiza mientras YOLO procesa.</p>
       <div class="live-values monitor-values"><div><small>Peatones</small><strong id="live-people">{{ p.peatones }}</strong></div><div><small>Vehículos en el último análisis</small><strong id="live-vehicles">{{ p.vehiculos }}</strong></div><div><small>Riesgo medio</small><strong id="live-medium">{{ p.riesgo_medio }}</strong></div><div><small>Riesgo alto</small><strong id="live-high">{{ p.riesgo_alto }}</strong></div><div><small>Cruces peatonales</small><strong id="live-p-cross">{{ p.peatones_cruzaron }}</strong></div><div><small>Cruces vehiculares</small><strong id="live-v-cross">{{ p.vehiculos_cruzaron }}</strong></div></div>
       <div class="video-layout">
         <div class="video-screen"><img alt="Video procesado por YOLO con cajas de detección y alertas" id="processed-video"><div class="video-placeholder" id="video-placeholder"><span>▶</span><strong>Vista de análisis</strong><p>{{ "Esperando la cámara." if mode == "camera" else "Selecciona un video para iniciar el análisis." }}</p></div></div>
         <div class="video-side"><div class="data-note"><strong>Fuente actual</strong><span id="video-name">{{ p.video_name or 'Ningún video seleccionado' }}</span></div><div class="data-note"><strong>Estado</strong><span id="analysis-detail">{{ p.status }}</span></div><div class="data-note"><strong>Simulación automática de emergencias</strong><button type="button" class="primary-button" id="accident-simulation-toggle" aria-pressed="false">Activar simulación</button><span id="accident-simulation-status" role="status">Desactivada.</span><small>Se activa con solapamiento de peatón y vehículo durante 3 análisis seguidos. Solo es simulación.</small></div>
-          <div class="data-note"><strong>Reproducción / detección</strong><span><b id="playback-fps">{{ p.display_fps }}</b> FPS de video · <b id="inference-fps">{{ p.fps }}</b> FPS de YOLO</span><small>En modo rápido el video avanza de forma continua y YOLO actualiza las cajas y el conteo con las muestras que alcanza a analizar.</small></div>
+          <div class="data-note"><strong>{{ 'Reproducción / detección' if mode == 'video' else 'Rendimiento' }}</strong><span><b id="playback-fps">{{ p.display_fps }}</b> FPS de imagen · <b id="inference-fps">{{ p.fps }}</b> FPS de YOLO</span>{% if mode == 'video' %}<small>En modo rápido el video avanza de forma continua y YOLO actualiza las cajas y el conteo con las muestras que alcanza a analizar.</small>{% endif %}</div>
           <form action="{{ url_for('stop_analysis') }}" method="post"><button id="stop-analysis" class="stop-button" type="submit" {% if not p.running %}disabled{% endif %}>■ Detener análisis</button></form><p class="hint">El video se procesa en este equipo. No cierres la terminal mientras la página esté en uso.</p></div>
       </div>
       {% if mode == "video" %}
@@ -72,29 +76,32 @@
       {% endif %}
       {% if p.error %}<div class="notice warning">{{ p.error }}</div>{% endif %}
     </section>
+    {% endif %}
     {% if d.error %}<div class="notice warning">No se pudieron leer los datos: {{ d.error }}</div>{% endif %}
-    <section class="section-head"><div><h2>Resumen del análisis</h2><p>Últimos datos guardados en SafeWalk.</p></div><span class="updated">Actualización automática cada 1 s</span></section>
-    <section class="stats">
-      <article class="stat"><div class="stat-top"><span>Peatones detectados</span><span class="stat-icon blue">♙</span></div><div class="number" id="dashboard-people">{{ d.peatones }}</div><small>En el último registro</small></article>
-      <article class="stat"><div class="stat-top"><span>Vehículos detectados</span><span class="stat-icon cyan">▰</span></div><div class="number" id="dashboard-vehicles">{{ d.vehiculos }}</div><small>En el último registro</small></article>
-      <article class="stat"><div class="stat-top"><span>Riesgo medio</span><span class="stat-icon amber">!</span></div><div class="number" id="dashboard-medium">{{ d.riesgo_medio }}</div><small>Personas en riesgo medio en el último registro</small></article>
-      <article class="stat"><div class="stat-top"><span>Riesgo alto</span><span class="stat-icon red">⚠</span></div><div class="number" id="dashboard-high">{{ d.riesgo_alto }}</div><small>Personas en riesgo alto en el último registro</small></article>
-    </section>
-    <section class="stats secondary-stats">
-      <article class="mini-stat"><span>Cruces peatonales registrados</span><strong>{{ d.peatones_cruzaron }}</strong></article>
-      <article class="mini-stat"><span>Cruces vehiculares registrados</span><strong>{{ d.vehiculos_cruzaron }}</strong></article>
-      <article class="mini-stat"><span>Alertas almacenadas</span><strong>{{ d.alertas_total }}</strong></article>
-      <article class="mini-stat"><span>FPS promedio registrado</span><strong>{{ d.fps }}</strong></article>
-    </section>
     <section class="panel monitor-panel" id="estadisticas">
       <div class="panel-head"><div><h2>Tendencias y análisis de datos</h2><p>Detecciones por muestra del último análisis. Actualización automática cada segundo; últimas 120 muestras.</p></div><span class="pill" id="trend-status" role="status">Conectando…</span></div>
       <div class="trend-legend"><span style="color:#315ee8">● Peatones</span><span style="color:#078ca7">● Vehículos</span><span style="color:#c73b48">● Riesgo alto</span></div>
       <div class="trend-container"><canvas id="trend-chart" role="img" aria-label="Tendencias en tiempo real: peatones, vehículos y personas en riesgo alto"></canvas></div>
       <p class="hint" id="trend-description">Esperando datos. Las detecciones no equivalen a personas únicas.</p>
       <a href="/estadisticas.png" target="_blank" rel="noopener">Ver gráfico por minuto (Matplotlib)</a>
+    </section>
+    <section class="section-head"><div><h2>Resumen del análisis</h2><p id="summary-session">{% if summary.sesion %}{{ summary.sesion.nombre }} · {{ summary.sesion.estado }}{% else %}Aún no hay un análisis para esta fuente.{% endif %}</p></div><span class="updated">Actualización automática cada 1 s</span></section>
+    <section class="stats">
+      <article class="stat"><div class="stat-top"><span>Máximo de peatones en imagen</span><span class="stat-icon blue">♙</span></div><div class="number" id="dashboard-people">{{ summary.max_peatones }}</div><small>En un fotograma analizado</small></article>
+      <article class="stat"><div class="stat-top"><span>Máximo de vehículos en imagen</span><span class="stat-icon cyan">▰</span></div><div class="number" id="dashboard-vehicles">{{ summary.max_vehiculos }}</div><small>En un fotograma analizado</small></article>
+      <article class="stat"><div class="stat-top"><span>Muestras con riesgo medio</span><span class="stat-icon amber">!</span></div><div class="number" id="dashboard-medium">{{ summary.muestras_riesgo_medio }}</div><small>Fotogramas registrados con riesgo</small></article>
+      <article class="stat"><div class="stat-top"><span>Muestras con riesgo alto</span><span class="stat-icon red">⚠</span></div><div class="number" id="dashboard-high">{{ summary.muestras_riesgo_alto }}</div><small>Fotogramas registrados con riesgo</small></article>
+    </section>
+    <section class="stats secondary-stats">
+      <article class="mini-stat"><span>Cruces peatonales de esta sesión</span><strong id="summary-p-cross">{{ summary.peatones_cruzaron }}</strong></article>
+      <article class="mini-stat"><span>Cruces vehiculares de esta sesión</span><strong id="summary-v-cross">{{ summary.vehiculos_cruzaron }}</strong></article>
+      <article class="mini-stat"><span>Alertas de esta sesión</span><strong id="summary-alerts">{{ summary.alertas }}</strong></article>
+      <article class="mini-stat"><span>FPS promedio de esta sesión</span><strong id="summary-fps">{{ summary.fps }}</strong></article>
+    </section>
+    {% if mode == 'dashboard' %}
+    <section class="panel monitor-panel">
       <h2>Historial de análisis</h2><div class="records-actions"><label><input id="select-all-sessions" type="checkbox"> Seleccionar todos los visibles</label><button id="delete-selected-sessions" class="delete-session" type="button" disabled>Eliminar seleccionados</button><span id="selected-sessions-count" class="hint">0 seleccionados</span></div><div class="table-wrap"><table><thead><tr><th>Elegir</th><th>Fuente</th><th>Nombre</th><th>Inicio</th><th>Estado</th><th>Reporte</th></tr></thead><tbody id="sessions-body"></tbody></table></div>
     </section>
-    {% include 'records.html' %}
     <section class="content-grid">
       <article class="panel" id="alertas"><div class="panel-head"><div><h2>Alertas recientes</h2><p>Historial obtenido de la base de datos local.</p></div><span class="pill">{{ d.alertas_total }} total</span></div>
         {% if d.alertas %}<div class="table-wrap"><table><thead><tr><th>Fecha y hora</th><th>Nivel</th><th>Descripción</th></tr></thead><tbody>{% for a in d.alertas %}<tr><td>{{ a.fecha_hora }}</td><td><span class="risk {{ a.nivel|lower }}">{{ a.nivel }}</span></td><td>{{ a.descripcion }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty"><span>✓</span><strong>No hay alertas registradas</strong><p>Cuando el análisis detecte riesgo medio o alto, aparecerán aquí.</p></div>{% endif %}
@@ -107,6 +114,8 @@
         <a class="download" href="/descargas/safewalk.db">Descargar copia de la base de datos SQLite ↓</a>
       </article>
     </section>
+    {% include 'records.html' %}
+    {% endif %}
     <footer><span>SafeWalk · Proyecto académico de visión por computadora</span><span>Riesgo estimado por proximidad visual; no sustituye una evaluación vial oficial.</span></footer>
   </main>
   <div id="emergency-simulation-alert" class="emergency-alert" role="alertdialog" aria-live="assertive" hidden>
@@ -116,7 +125,7 @@
     let dismissedEmergencyCallCount = 0;
     async function updateSafeWalk() {
       try {
-        const response = await fetch('/api/dashboard', {cache: 'no-store'});
+        const response = await fetch('/api/dashboard?fuente={{ 'camera' if mode == 'camera' else 'video' }}', {cache: 'no-store'});
         const data = await response.json();
         const p = data.analysis;
         window.dispatchEvent(new CustomEvent('safewalk:analysis', {detail: p}));
@@ -162,9 +171,12 @@
         if (placeholder) placeholder.hidden = p.has_frame && matchesPage;
         const submit = document.querySelector('.upload-form button[type="submit"]'); if (submit) submit.disabled = !!p.running;
         const stop = document.getElementById('stop-analysis'); if (stop) stop.disabled = !p.running;
-        const db = data.dashboard;
-        put('dashboard-people', db.peatones); put('dashboard-vehicles', db.vehiculos);
-        put('dashboard-medium', db.riesgo_medio); put('dashboard-high', db.riesgo_alto);
+        const summary = data.summary;
+        put('summary-session', summary.sesion ? `${summary.sesion.nombre} · ${summary.sesion.estado}` : 'Aún no hay un análisis para esta fuente.');
+        put('dashboard-people', summary.max_peatones); put('dashboard-vehicles', summary.max_vehiculos);
+        put('dashboard-medium', summary.muestras_riesgo_medio); put('dashboard-high', summary.muestras_riesgo_alto);
+        put('summary-p-cross', summary.peatones_cruzaron); put('summary-v-cross', summary.vehiculos_cruzaron);
+        put('summary-alerts', summary.alertas); put('summary-fps', summary.fps);
       } catch (e) { /* El panel seguirá mostrando el último estado recibido. */ }
     }
     setInterval(updateSafeWalk, 1000); updateSafeWalk();
@@ -179,6 +191,7 @@
       finally { button.disabled = false; }
     });
     document.getElementById('dismiss-emergency-alert')?.addEventListener('click', () => { dismissedEmergencyCallCount = Number(document.getElementById('emergency-call-count').textContent.match(/\d+/g)?.at(-1) || 0); document.getElementById('emergency-simulation-alert').hidden = true; });
+    {% if mode == 'dashboard' %}
     async function updateSessions() {
       try {
         const response = await fetch('/api/sesiones');
@@ -237,6 +250,7 @@
         document.getElementById('select-all-sessions').checked = false; await updateSessions(); updateBulkSelection();
       } catch (error) { alert(error.message); button.disabled = false; }
     });
+    {% endif %}
   </script>
   {% if mode == "camera" %}
   <script src="{{ url_for('static', filename='camera-transport.js', v=asset_version) }}"></script>

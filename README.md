@@ -20,6 +20,8 @@ En los dos primeros modos puedes pausar, reanudar, retroceder o avanzar 10 segun
 
 Cada análisis iniciado desde el panel guarda su video anotado en `outputs/videos/sesion_<id>.mp4`. En el historial, pulsa **Revisar** para abrir el video con controles de reproducción, retroceso/avance de 5 segundos y métricas sincronizadas con el tiempo del video. Los registros previos a esta función no tienen video procesado asociado.
 
+**Resumen por análisis:** cada video tiene su propia sesión en SQLite. El resumen junto al video y el de su página **Revisar** usan únicamente los datos de esa sesión: máximo de personas y vehículos visibles en una muestra, cantidad de muestras con riesgo, cruces alcanzados, alertas generadas y FPS promedio. El máximo visible no equivale a personas o vehículos únicos. Al iniciar otro video el resumen comienza en cero y se actualiza mientras se guardan sus muestras.
+
 El panel incorpora **Base de datos y explorador de registros**: selección de métricas o alertas, filtros por análisis, fechas y riesgo, paginación de 25 registros, indicadores de la selección y descargas CSV/ZIP que aplican los mismos filtros. El estado de SQLite muestra cantidades almacenadas, integridad y relaciones inválidas. Las copias completas se descargan usando la API de respaldo de SQLite.
 
 Indica la **zona monitoreada** al subir un video o activar una cámara. Cada ejecución relaciona su zona y fuente con sus métricas y alertas. Los registros anteriores se conservan; su zona queda como `Sin especificar`.
@@ -38,6 +40,7 @@ Consulta `database/README.md` para ver el modelo de datos y una secuencia de exp
 
 - Cámara de laptop o celular mediante `getUserMedia` del navegador. El tamaño de los JPEG se adapta a la conexión y el servidor limita el lado mayor a 960 px.
 - Cola de cámara de un solo fotograma: se reemplaza la imagen pendiente para evitar acumular retraso. Se detiene la sesión con error si no llegan imágenes durante 30 segundos.
+- En cámara, las cajas aparecen sobre el mismo fotograma que analizó YOLO. Mientras carga el modelo o si el análisis demora, se muestra una vista previa sin cajas para evitar marcarlas sobre objetos que ya se movieron.
 - Modo rápido: un hilo reproduce el video a su ritmo original, hasta 30 FPS, mientras YOLO analiza las muestras recientes a 768 px. Las cajas se conservan brevemente y pueden omitirse detecciones entre muestras.
 - Modo mayor detalle: inferencia a 832 px en todos los fotogramas; modo de calidad original: inferencia a 960 px y reproducción posterior del resultado H.264.
 - Visor de JPEG completos mediante `/api/video/frame`: solicita una imagen nueva a la vez, libera la anterior y reintenta si falla. Evita que el navegador mantenga una carga MJPEG indefinida. `/video_feed` se conserva por compatibilidad.

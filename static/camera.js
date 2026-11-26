@@ -32,6 +32,7 @@ const cameraErrors = {
 };
 
 async function closeCamera() {
+  // Detiene la captura local y avisa al servidor que cierre la sesión.
   cameraActive = false;
   cameraGeneration++;
   clearTimeout(cameraTimer);
@@ -48,6 +49,8 @@ async function closeCamera() {
 }
 
 async function captureCameraFrame(generation) {
+  // Convierte la imagen del navegador en JPEG y la envía sin acumular cola.
+  // YOLO procesa ese JPEG en WebVideoProcessor._run (servidor).
   if (!cameraActive || generation !== cameraGeneration) return;
   const started = performance.now();
   const sender = cameraTransport;
@@ -86,6 +89,7 @@ async function captureCameraFrame(generation) {
 }
 
 cameraStart.addEventListener('click', async () => {
+  // getUserMedia obtiene la cámara; /api/camera/start crea la sesión de análisis.
   if (cameraOpening || cameraActive) return;
   cameraOpening = true;
   cameraStart.disabled = true;
