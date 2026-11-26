@@ -52,6 +52,38 @@ class SafeWalkTests(unittest.TestCase):
         with closing(sqlite3.connect(backup)) as conn, conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM sesiones').fetchone()[0], 2)
 
+    def test_video_summary_uses_only_its_analysis_session(self):
+        first = storage.iniciar_sesion('video', 'primero.mp4')
+        storage.guardar_metrica(4, 2, 1, 0, 8, 1, 0, first)
+        storage.finalizar_sesion(first, 'finalizado')
+        second = storage.iniciar_sesion('video', 'segundo.mp4')
+        storage.guardar_metrica(2, 3, 0, 1, 12, 0, 1, second)
+        storage.guardar_metrica(3, 5, 1, 2, 10, 1, 0, second)
+        storage.guardar_alerta('ALTO', 'Prueba del segundo video', second)
+        storage.finalizar_sesion(second, 'finalizado')
+        camera = storage.iniciar_sesion('camera', 'Camara')
+        storage.guardar_metrica(9, 9, 4, 4, 6, 0, 0, camera)
+        storage.finalizar_sesion(camera, 'finalizado')
+        other_processor = WebVideoProcessor()
+        with patch.object(web, 'processor', other_processor):
+            response = self.client.get('/api/dashboard?fuente=video').json['summary']
+            self.assertEqual(response['sesion']['nombre'], 'segundo.mp4')
+            self.assertEqual((response['max_peatones'], response['max_vehiculos']), (3, 5))
+            self.assertEqual((response['muestras_riesgo_medio'], response['muestras_riesgo_alto']), (1, 1))
+            self.assertEqual((response['peatones_cruzaron'], response['vehiculos_cruzaron']), (1, 2))
+            self.assertEqual(response['alertas'], 1)
+            self.assertEqual(response['fps'], 11)
+            historic = self.client.get(f'/api/reportes/sesion/{first}').json['resumen']
+            self.assertEqual((historic['max_peatones'], historic['max_vehiculos']), (4, 2))
+            self.assertEqual(historic['alertas'], 0)
+            trends = self.client.get('/api/tendencias?fuente=video').json
+            self.assertEqual(trends['sesion']['id'], second)
+            self.assertEqual(len(trends['muestras']), 2)
+            self.assertEqual(self.client.get('/api/dashboard?fuente=camera').json['summary']['max_peatones'], 9)
+            other_processor.running = True
+            other_processor.source = 'video'
+            self.assertIsNone(self.client.get('/api/dashboard?fuente=video').json['summary']['sesion'])
+
     def test_camera_validation_and_latest_frame_queue(self):
         processor = WebVideoProcessor()
         processor.running = True
@@ -81,6 +113,26 @@ class SafeWalkTests(unittest.TestCase):
         self.assertEqual(processor.camera_frames.get()[0].mean(), 200)
         self.assertFalse(processor.submit_camera_frame(older, 3, 'old-session'))
         self.assertEqual(processor.camera_latest[0].mean(), 200)
+
+    def test_camera_boxes_stay_on_the_frame_that_was_analyzed(self):
+        processor = WebVideoProcessor()
+        processor.running = True
+        processor.source = 'camera'
+        raw = np.zeros((120, 160, 3), np.uint8)
+        annotated = raw.copy()
+        cv2.rectangle(annotated, (20, 20), (70, 90), (0, 255, 0), 4)
+        self.assertTrue(processor._publish_live(raw))
+        processor._publish_camera_analysis(annotated, 8)
+        annotated_version = processor.frame_version
+        # La imagen nueva no debe recibir cajas de la imagen analizada antes.
+        self.assertFalse(processor._publish_live(np.full_like(raw, 255)))
+        self.assertEqual(processor.frame_version, annotated_version)
+        displayed = cv2.imdecode(np.frombuffer(processor.frame_jpeg, np.uint8), cv2.IMREAD_COLOR)
+        self.assertGreater(int(displayed[20, 40, 1]), 175)
+        processor.camera_last_annotated = time.monotonic() - 2
+        self.assertTrue(processor._publish_live(np.full_like(raw, 255)))
+        preview = cv2.imdecode(np.frombuffer(processor.frame_jpeg, np.uint8), cv2.IMREAD_COLOR)
+        self.assertGreater(int(preview[20, 40, 0]), 240)
 
     def test_camera_preview_does_not_wait_for_model_warmup(self):
         release = threading.Event()

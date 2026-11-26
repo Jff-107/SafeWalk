@@ -7,7 +7,10 @@ import cv2
 
 
 class LiveVideo:
+    """Reproduce el archivo a su ritmo mientras YOLO analiza muestras disponibles."""
+
     def __init__(self, path, publish, stopped):
+        """Abre el archivo y crea una cola de una imagen para evitar retrasos."""
         self.capture = cv2.VideoCapture(path)
         self.fps = self.capture.get(cv2.CAP_PROP_FPS)
         if not 1 <= self.fps <= 240:
@@ -30,6 +33,7 @@ class LiveVideo:
         self._control = threading.Lock()
 
     def control(self, paused=None, seek=None):
+        """Aplica pausa o salto y descarta fotogramas de la posición anterior."""
         with self._control:
             if paused is not None:
                 self._paused = paused
@@ -53,6 +57,7 @@ class LiveVideo:
         return self.capture.get(prop)
 
     def read(self):
+        """Entrega a YOLO la imagen más reciente preparada por _play."""
         if self.thread is None:
             self.thread = threading.Thread(target=self._play, daemon=True)
             self.thread.start()
@@ -73,6 +78,7 @@ class LiveVideo:
         return False, None
 
     def _play(self):
+        """Publica imágenes a tiempo real; si se atrasa, omite las vencidas."""
         started = time.perf_counter()
         index = 0
         output_fps = min(self.fps, 30)
@@ -149,6 +155,7 @@ class LiveVideo:
             self.done.set()
 
     def release(self):
+        """Cierra el hilo y libera la captura de OpenCV."""
         self.closed.set()
         if self.thread is not None:
             self.thread.join()

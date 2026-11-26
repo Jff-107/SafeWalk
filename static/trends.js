@@ -56,8 +56,11 @@
   }
 
   async function poll() {
+    // Pide las muestras de la sesión visible cada segundo y redibuja el gráfico.
     try {
-      const response = await fetch('/api/tendencias', {cache: 'no-store', signal: AbortSignal.timeout(5000)});
+      const source = document.body.dataset.analysisSource || 'video';
+      const response = await fetch(`/api/tendencias?fuente=${encodeURIComponent(source)}`,
+        {cache: 'no-store', signal: AbortSignal.timeout(5000)});
       if (!response.ok) throw new Error('Sin conexión');
       const data = await response.json();
       samples = data.muestras;
